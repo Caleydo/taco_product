@@ -78,7 +78,7 @@ function buildCommon(p, dir) {
       .then(() => cloneRepo(p, dir));
   if (hasAdditional) {
     act = act
-        .then(Promise.all(p.additional.map((pi) => cloneRepo(pi, dir))));
+        .then(() => Promise.all(p.additional.map((pi) => cloneRepo(pi, dir))));
   }
   return act;
 }
