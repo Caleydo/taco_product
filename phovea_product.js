@@ -12,12 +12,10 @@ module.exports = [
   },
   {
     type: 'api',
-    name: 'phovea/phovea_server',
-    branch: 'master',
+    name: 'taco_server',
+    repo: 'caleydo/taco_server',
+    branch: 'migrate',
     additional: [{
-      repo: 'caleydo/taco_server',
-      branch: 'migrate'
-    }, {
       repo: 'phovea/phovea_data_hdf',
       branch: 'master'
     }]
