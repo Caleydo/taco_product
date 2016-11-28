@@ -1,0 +1,41 @@
+{
+  "name": "taco_product",
+  "description": "",
+  "homepage": "https://phovea.caleydo.org",
+  "version": "0.0.1-SNAPSHOT",
+  "author": {
+    "name": "The Caleydo Team",
+    "email": "contact@caleydo.org",
+    "url": "https://caleydo.org"
+  },
+  "license": "BSD-3-Clause",
+  "bugs": {
+    "url": "https://github.com/caleydo/taco_product/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/caleydo/taco_product.git"
+  },
+  "files": [
+    "phovea_product.js",
+    "build"
+  ],
+  "engines": {
+    "npm": ">= 3",
+    "node": ">= 6",
+    "iojs": ">= 3"
+  },
+  "scripts": {
+    "build": "webpack --env prod",
+    "predist": "npm run build",
+    "dist": "mkdirp dist && cd build && tar cvzf ../dist/_product.tar.gz *"
+  },
+  "dependencies": {
+    "bluebird": "^3.4.6",
+    "chalk": "^1.1.3",
+    "generator-phovea": "github:phovea/generator-phovea",
+    "mkdirp": "^0.5.1",
+    "rm-r": "^1.0.2",
+    "yeoman-environment": "^1.6.6"
+  }
+}
