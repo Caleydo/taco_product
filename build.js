@@ -16,27 +16,17 @@ function spawn(cmd, args, opts) {
   const spawn = require('child_process').spawn;
   return new Promise((resolve, reject) => {
     const p = spawn(cmd, args, opts);
+    p.stdout.on('data', (data) => console.log(data.toString()));
+    p.stderr.on('data', (data) => console.error(chalk.red(data.toString())));
 
-    p.stdout.on('data', (data) => {
-      console.log(data.toString());
-    });
-
-    p.stderr.on('data', (data) => {
-      console.error(chalk.red(data.toString()));
-    });
-
-    p.on('close', (code) => {
-      code == 0 ? resolve() : reject(code);
-    });
+    p.on('close', (code) => code == 0 ? resolve() : reject(code));
   });
 }
 
 function npm(cwd, cmd) {
   console.log(chalk.blue('running npm', cmd));
   const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  return spawn(npm, (cmd || 'install').split(' '), {
-    cwd: cwd
-  });
+  return spawn(npm, (cmd || 'install').split(' '), {cwd});
 }
 
 function yo(generator, cwd) {
@@ -58,17 +48,14 @@ function yo(generator, cwd) {
 }
 
 function cloneRepo(p, cwd) {
-  console.log(chalk.blue(`running git clone -b ${p.branch || 'master'} ${toRepoUrl(p.repo)}`));
-  return spawn('git', ['clone', '-b', p.branch || 'master', toRepoUrl(p.repo)], {
-    cwd: cwd
-  });
+  p.branch = p.branch || 'master';
+  console.log(chalk.blue(`running git clone -b ${p.branch} ${toRepoUrl(p.repo)}`));
+  return spawn('git', ['clone', '-b', p.branch, toRepoUrl(p.repo)], {cwd});
 }
 
 function moveToBuild(p, cwd) {
   return mkdirp.mkdirpAsync('build')
-      .then(() => spawn('mv', [`${p.name}/dist/*.tar.gz`, '../build/'], {
-        cwd: cwd
-      }));
+      .then(() => spawn('mv', [`${p.name}/dist/*.tar.gz`, '../build/'], {cwd}));
 }
 
 function buildCommon(p, dir) {
@@ -100,8 +87,7 @@ function buildWebApp(p, dir) {
   }
   act = act.then(() => moveToBuild(p, dir));
   act.catch((error) => {
-    console.error('ERROR');
-    console.trace(error);
+    console.error('ERROR', error);
   });
   return act;
 }
@@ -114,6 +100,9 @@ function buildApiApp(p, dir) {
   act = act.then(() => cloneRepo({repo: 'phovea/phovea_server', branch: 'master'}, dir));
 
   console.error(chalk.red.bold('TODO building', p.name));
+  act.catch((error) => {
+    console.error('ERROR', error);
+  });
   return act;
 }
 
@@ -123,13 +112,16 @@ function buildServiceApp(p, dir) {
 
   let act = buildCommon(p, dir);
   console.error(chalk.red.bold('TODO building', p.name));
+  act.catch((error) => {
+    console.error('ERROR', error);
+  });
   return act;
 }
 
 if (require.main === module) {
   const descs = require('./phovea_product');
   descs.forEach((d, i) => {
-    d.additional = d.additional || [];
+    d.additional = d.additional || []; //default values
     switch (d.type) {
       case 'web':
         return buildWebApp(d, './tmp' + i);
@@ -138,33 +130,7 @@ if (require.main === module) {
       case 'service':
         return buildServiceApp(d, './tmp' + i);
       default:
-        console.error('unknown product type:', d.type);
+        console.error(chalk.red('unknown product type: ' + d.type));
     }
   });
 }
-/*
- algorithm:
- mkdir build
- for app of web:
- mkdir app
- cd app
- clone -b app.branch app.repo
- for extra of additional:
- clone -b extra.branch extra.repo
- yo phovea:ueber -v=virtualenv
- npm install
- if app.hybrid:
- npm run build:web:app
- else
- npm run build:app
- mv app/build/* ../build/app
- cd ..
- rm -r app
- for app in api:
- mkdir app
- cd app
- clone -b app.branch app.repo
- for extra of additional:
- clone -b extra.branch extra.repo
- cd ..
- */
