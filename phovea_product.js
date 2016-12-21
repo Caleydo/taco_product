@@ -4,7 +4,7 @@
 
 module.exports = [
   {
-    type: 'web__',
+    type: 'web',
     name: 'taco',
     repo: 'Caleydo/taco',
     branch: 'deploy',
