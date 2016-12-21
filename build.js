@@ -147,9 +147,7 @@ function buildServerApp(p, dir) {
 
   let act = buildCommon(p, dir);
   act = act
-  //  .then(() => yo('resolve', {ssh: false, workspace: false, type: 'server'}, dir))
     .then(() => yo('workspace', {noAdditionals: true}, dir))
-  //let act = Promise.resolve([]);
 
   act = act
     .then(() => console.log(chalk.yellow('create test environment')))
@@ -161,6 +159,8 @@ function buildServerApp(p, dir) {
     .then(() => spawn('mkdir', ['-p', `${dir}/build`]))
     .then(() => spawn('cp', ['-r', `${dir}/${name}/build/source`, `${dir}/build/`]))
     .then(() => Promise.all(p.additional.map((pi) => spawn('cp', ['-r', `${dir}/${pi.name}/build/source/*`, `${dir}/build/source/`]))));
+
+  //let act = Promise.resolve([]);
 
   //copy main deploy thing and create a docker out of it
   act = act
