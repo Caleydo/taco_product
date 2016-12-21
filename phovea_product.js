@@ -11,13 +11,17 @@ module.exports = [
     additional: []
   },
   {
-    type: 'api',
-    name: 'taco_server',
-    repo: 'Caleydo/taco_server',
-    branch: 'deploy',
+    type: 'server',
+    label: 'taco_server'
+    name: 'phovea_server',
+    branch: 'docker_env'
     additional: [{
-      repo: 'phovea/phovea_data_hdf',
+      name: 'phovea_data_hdf',
       branch: 'docker_env'
+    },{
+      name: 'taco_server',
+      repo: 'Caleydo/taco_server',
+      branch: 'deploy'
     }]
   }
 ];

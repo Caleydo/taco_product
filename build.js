@@ -87,14 +87,15 @@ function yo(generator, options, cwd) {
 }
 
 function cloneRepo(p, cwd) {
+  p.repo = p.repo || `phovea/${p.name}`;
   p.branch = p.branch || 'master';
-  console.log(chalk.blue(`running git clone --depth 1 -b ${p.branch} ${toRepoUrl(p.repo)}`));
-  return spawn('git', ['clone', '--depth', '1', '-b', p.branch, toRepoUrl(p.repo)], {cwd});
+  console.log(chalk.blue(`running git clone --depth 1 -b ${p.branch} ${toRepoUrl(p.repo)} ${p.name}`));
+  return spawn('git', ['clone', '--depth', '1', '-b', p.branch, toRepoUrl(p.repo), p.name], {cwd});
 }
 
 function moveToBuild(p, cwd) {
   return mkdirp.mkdirpAsync('build')
-    .then(() => spawn('mv', [`${p.name}/dist/*.tar.gz`, '../build/'], {cwd}));
+    .then(() => spawn('mv', [`${p.name}/dist/${p.name}.tar.gz`, `../build/${p.label}.tar.gz`], {cwd}));
 }
 
 function buildCommon(p, dir) {
@@ -109,16 +110,21 @@ function buildCommon(p, dir) {
   return act;
 }
 
-function buildWebApp(p, dir, serverLess) {
+function buildWebApp(p, dir) {
+  console.log(chalk.blue('Building web application:'), p.label);
   const name = p.name;
   const hasAdditional = p.additional.length > 0;
-  console.log(chalk.blue('Building web application:'), p.name);
   let act = buildCommon(p, dir);
   //let act = Promise.resolve(null);
   if (hasAdditional) {
     act = act
       .then(() => yo('workspace', {noAdditionals: true}, dir))
-      .then(() => npm(dir, 'install'))
+      .then(() => npm(dir, 'install'));
+    //test all modules
+    if (hasAdditional && !argv.skipTests) {
+      act = act.then(() => Promise.all(p.additional.map((pi) => npm(dir, `run test:${pi.name}`))));
+    }
+    act = act
       .then(() => npm(dir, `run dist:${p.name}`));
   } else {
     act = act
@@ -126,7 +132,7 @@ function buildWebApp(p, dir, serverLess) {
       .then(() => npm(dir + '/' + name, 'run dist'));
   }
   act = act
-    .then(() => docker(dir + '/' + name, `build -t ${p.name}:${pkg.version} -f deploy/Dockerfile .`))
+    .then(() => docker(dir + '/' + name, `build -t ${p.label}:${pkg.version} -f deploy/Dockerfile .`))
     .then(() => moveToBuild(p, dir));
   act.catch((error) => {
     console.error('ERROR', error);
@@ -134,29 +140,33 @@ function buildWebApp(p, dir, serverLess) {
   return act;
 }
 
-function buildApiApp(p, dir) {
-  console.log(chalk.blue('Building api package:'), p.name);
+function buildServerApp(p, dir) {
+  console.log(chalk.blue('Building server package:'), p.label);
+  const name = p.name;
   const hasAdditional = p.additional.length > 0;
 
   let act = buildCommon(p, dir);
-  //let act = Promise.resolve([]);
   act = act
-    .then(() => yo('resolve', {ssh: false, workspace: false, type: 'server'}, dir))
+  //  .then(() => yo('resolve', {ssh: false, workspace: false, type: 'server'}, dir))
     .then(() => yo('workspace', {noAdditionals: true}, dir))
+  //let act = Promise.resolve([]);
 
-  console.error(chalk.red.bold('TODO building', p.name));
-  act.catch((error) => {
-    console.error('ERROR', error);
-  });
-  return act;
-}
+  act = act
+    .then(() => console.log(chalk.yellow('create test environment')));
+    .then(() => npm(dir + '/' + name, 'run build'));
+    .then(() => Promise.all(p.additional.map((pi) => npm(dir+'/'+pi.name, `run build`))));
 
-function buildServiceApp(p, dir) {
-  console.log(chalk.blue('Building api package:'), p.name);
-  const hasAdditional = p.additional.length > 0;
+  //copy all together
+  act = act
+    .then(() => spawn('mkdir', ['-p', `${dir}/build`]))
+    .then(() => spawn('cp', ['-r', `${dir}/${name}/build/source`, `${dir}/build/`]))
+    .then(() => Promise.all(p.additional.map((pi) => spawn('cp', ['-r', `${dir}/${pi.name}/build/source/*`, `${dir}/build/source/`]))));
 
-  let act = buildCommon(p, dir);
-  console.error(chalk.red.bold('TODO building', p.name));
+  //copy main deploy thing and create a docker out of it
+  act = act
+    .then(() => spawn('cp', ['-r', `${dir}/${name}/deploy`, `${dir}/`]))
+    .then(() => docker(dir, `build -t ${p.label}:${pkg.version} -f deploy/Dockerfile .`))
+
   act.catch((error) => {
     console.error('ERROR', error);
   });
@@ -172,15 +182,12 @@ if (require.main === module) {
   const descs = require('./phovea_product');
   descs.forEach((d, i) => {
     d.additional = d.additional || []; //default values
+    d.label = d.label || d.name;
     switch (d.type) {
       case 'web':
         return buildWebApp(d, './tmp' + i);
-      case 'static':
-        return buildWebApp(d, './tmp' + i, true);
-      case 'api':
-        return buildApiApp(d, './tmp' + i);
-      case 'service':
-        return buildServiceApp(d, './tmp' + i);
+      case 'server':
+        return buildServerApp(d, './tmp' + i);
       default:
         console.error(chalk.red('unknown product type: ' + d.type));
     }
