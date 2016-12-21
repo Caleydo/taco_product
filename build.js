@@ -8,17 +8,19 @@ const fs = require('fs');
 const mkdirp = Promise.promisifyAll(require('mkdirp'));
 const chalk = require('chalk');
 const pkg = require('./package.json');
-const argv = require('yargs-parser')(process.argv.slice(2))
+const argv = require('yargs-parser')(process.argv.slice(2));
+const quiet = argv.quiet !== undefined;
 
 const now = new Date();
-const buildId = `${now.getUTCFullYear()}${now.getUTCMonth()}${now.getUTCDate()}-${now.getUTCHours()}${now.getUTCMinutes()}${now.getUTCSeconds()}`;
+const prefix = (n) => n < 10 ? ('0' + n) : n.toString();
+const buildId = `${now.getUTCFullYear()}${prefix(now.getUTCMonth())}${prefix(now.getUTCDate())}-${prefix(now.getUTCHours())}${prefix(now.getUTCMinutes())}${prefix(now.getUTCSeconds())}`;
 pkg.version = pkg.version.replace('SNAPSHOT', buildId);
 const env = Object.assign({}, process.env);
-
 
 function toRepoUrl(url) {
   return url.startsWith('http') ? url : `https://github.com/${url}`;
 }
+
 
 /**
  * spawns a child process
@@ -30,9 +32,10 @@ function spawn(cmd, args, opts) {
   const spawn = require('child_process').spawn;
   return new Promise((resolve, reject) => {
     const p = spawn(cmd, args, opts);
-    p.stdout.on('data', (data) => console.log(data.toString()));
-    p.stderr.on('data', (data) => console.error(chalk.red(data.toString())));
-
+    if (!quiet) {
+      p.stdout.on('data', (data) => console.log(data.toString()));
+      p.stderr.on('data', (data) => console.error(chalk.red(data.toString())));
+    }
     p.on('close', (code) => code == 0 ? resolve() : reject(code));
   });
 }
@@ -60,6 +63,12 @@ function docker(cwd, cmd) {
   return spawn('docker', (cmd || 'build .').split(' '), {cwd, env});
 }
 
+function createQuietTerminalAdapter() {
+  const impl = new require('yeoman-environment/adapter');
+  impl.log = () => undefined;
+  return impl;
+}
+
 /**
  * runs yo internally
  * @param generator
@@ -69,7 +78,7 @@ function docker(cwd, cmd) {
 function yo(generator, options, cwd) {
   const yeoman = require('yeoman-environment');
   // call yo internally
-  const yeomanEnv = yeoman.createEnv([], {cwd, env});
+  const yeomanEnv = yeoman.createEnv([], {cwd, env}, quiet ? createQuietTerminalAdapter() : undefined);
   yeomanEnv.register(require.resolve('generator-phovea/generators/' + generator), 'phovea:' + generator);
   const runYo = () => new Promise((resolve, reject) => {
     try {
@@ -111,7 +120,7 @@ function buildCommon(p, dir) {
 }
 
 function buildWebApp(p, dir) {
-  console.log(chalk.blue('Building web application:'), p.label);
+  console.log(dir, chalk.blue('building web application:'), p.label);
   const name = p.name;
   const hasAdditional = p.additional.length > 0;
   let act = buildCommon(p, dir);
@@ -137,17 +146,17 @@ function buildWebApp(p, dir) {
   act.catch((error) => {
     console.error('ERROR', error);
   });
-  return act;
+  return act.then(() => `${p.label}:${pkg.version}`);
 }
 
 function buildServerApp(p, dir) {
-  console.log(chalk.blue('Building server package:'), p.label);
+  console.log(dir, chalk.blue('building server package:'), p.label);
   const name = p.name;
   const hasAdditional = p.additional.length > 0;
 
-  let act = buildCommon(p, dir);
+  // let act = buildCommon(p, dir);
   act = act
-    .then(() => yo('workspace', {noAdditionals: true}, dir))
+    .then(() => yo('workspace', {noAdditionals: true}, dir));
 
   act = act
     .then(() => console.log(chalk.yellow('create test environment')))
@@ -165,12 +174,12 @@ function buildServerApp(p, dir) {
   //copy main deploy thing and create a docker out of it
   act = act
     .then(() => spawn('cp', ['-r', `${dir}/${name}/deploy`, `${dir}/`]))
-    .then(() => docker(dir, `build -t ${p.label}:${pkg.version} -f deploy/Dockerfile .`))
+    .then(() => docker(dir, `build -t ${p.label}:${pkg.version} -f deploy/Dockerfile .`));
 
   act.catch((error) => {
     console.error('ERROR', error);
   });
-  return act;
+  return act.then(() => `${p.label}:${pkg.version}`);
 }
 
 if (require.main === module) {
@@ -180,7 +189,7 @@ if (require.main === module) {
     env.PHOVEA_SKIP_TESTS = true;
   }
   const descs = require('./phovea_product');
-  descs.forEach((d, i) => {
+  const all = Promise.all(descs.map((d, i) => {
     d.additional = d.additional || []; //default values
     d.label = d.label || d.name;
     switch (d.type) {
@@ -190,6 +199,13 @@ if (require.main === module) {
         return buildServerApp(d, './tmp' + i);
       default:
         console.error(chalk.red('unknown product type: ' + d.type));
+        return Promise.resolve(null);
     }
+  }));
+
+  all.then((images) => {
+    console.log('done');
+    console.log('docker images');
+    console.log(' ', chalk.blue(images.join('\n  ')));
   });
 }
