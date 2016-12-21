@@ -8,10 +8,13 @@ const fs = require('fs');
 const mkdirp = Promise.promisifyAll(require('mkdirp'));
 const chalk = require('chalk');
 const pkg = require('./package.json');
+const argv = require('yargs-parser')(process.argv.slice(2))
 
 const now = new Date();
 const buildId = `${now.getUTCFullYear()}${now.getUTCMonth()}${now.getUTCDate()}-${now.getUTCHours()}${now.getUTCMinutes()}${now.getUTCSeconds()}`;
 pkg.version = pkg.version.replace('SNAPSHOT', buildId);
+const env = Object.assign({}, process.env);
+
 
 function toRepoUrl(url) {
   return url.startsWith('http') ? url : `https://github.com/${url}`;
@@ -41,9 +44,8 @@ function spawn(cmd, args, opts) {
  * @param env options env variables
  * @return {*}
  */
-function npm(cwd, cmd, env) {
+function npm(cwd, cmd) {
   console.log(chalk.blue('running npm', cmd));
-  env = Object.assign(env || {}, process.env);
   const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
   return spawn(npm, (cmd || 'install').split(' '), {cwd, env});
 }
@@ -57,7 +59,7 @@ function npm(cwd, cmd, env) {
 function docker(cwd, cmd) {
   console.log(chalk.blue('running docker', cmd));
   const docker = process.platform === 'win32' ? 'docker.cmd' : 'docker';
-  return spawn(docker, (cmd || 'build .').split(' '), {cwd});
+  return spawn(docker, (cmd || 'build .').split(' '), {cwd, env});
 }
 
 /**
@@ -69,9 +71,7 @@ function docker(cwd, cmd) {
 function yo(generator, options, cwd) {
   const yeoman = require('yeoman-environment');
   // call yo internally
-  const env = yeoman.createEnv([], {
-    cwd: cwd
-  });
+  const env = yeoman.createEnv([], {cwd, env});
   env.register(require.resolve('geneator-phovea/generators/' + generator), 'phovea:' + generator);
   return new Promise((resolve, reject) => {
     try {
@@ -116,11 +116,11 @@ function buildWebApp(p, dir, serverLess) {
     act = act
       .then(() => yo('workspace', { noAdditionals: true}, dir))
       .then(() => npm(dir, 'install'))
-      .then(() => npm(dir, `run dist:${p.name}`, { PHOVEA_SKIP_TESTS: true }));
+      .then(() => npm(dir, `run dist:${p.name}`));
   } else {
     act = act
       .then(() => npm(dir + '/' + name, 'install'))
-      .then(() => npm(dir + '/' + name, 'run dist', { PHOVEA_SKIP_TESTS: true }));
+      .then(() => npm(dir + '/' + name, 'run dist'));
   }
   act = act.then(() => moveToBuild(p, dir));
   act.catch((error) => {
@@ -156,6 +156,11 @@ function buildServiceApp(p, dir) {
 }
 
 if (require.main === module) {
+  if (argv.skipTests) {
+    // if skipTest option is set, skip tests
+    console.log(chalk.blue('skipping tests'));
+    env.PHOVEA_SKIP_TESTS = true;
+  }
   const descs = require('./phovea_product');
   descs.forEach((d, i) => {
     d.additional = d.additional || []; //default values
