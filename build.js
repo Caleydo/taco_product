@@ -7,11 +7,22 @@ const path = require('path');
 const fs = require('fs');
 const mkdirp = Promise.promisifyAll(require('mkdirp'));
 const chalk = require('chalk');
+const pkg = require('./package.json');
+
+const now = new Date();
+const buildId = `${now.getUTCFullYear()}${now.getUTCMonth()}${now.getUTCDate()}-${now.getUTCHours()}${now.getUTCMinutes()}${now.getUTCSeconds()}`;
+pkg.version = pkg.version.replace('SNAPSHOT', buildId);
 
 function toRepoUrl(url) {
   return url.startsWith('http') ? url : `https://github.com/${url}`;
 }
 
+/**
+ * spawns a child process
+ * @param cmd command as array
+ * @param args arguments
+ * @param opts options
+ */
 function spawn(cmd, args, opts) {
   const spawn = require('child_process').spawn;
   return new Promise((resolve, reject) => {
@@ -23,13 +34,39 @@ function spawn(cmd, args, opts) {
   });
 }
 
-function npm(cwd, cmd) {
+/**
+ * run npm with the given args
+ * @param cwd working directory
+ * @param cmd the command to execute as a string
+ * @param env options env variables
+ * @return {*}
+ */
+function npm(cwd, cmd, env) {
   console.log(chalk.blue('running npm', cmd));
+  env = Object.assign(env || {}, process.env);
   const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  return spawn(npm, (cmd || 'install').split(' '), {cwd});
+  return spawn(npm, (cmd || 'install').split(' '), {cwd, env});
 }
 
-function yo(generator, cwd) {
+/**
+ * runs docker command
+ * @param cwd
+ * @param cmd
+ * @return {*}
+ */
+function docker(cwd, cmd) {
+  console.log(chalk.blue('running docker', cmd));
+  const docker = process.platform === 'win32' ? 'docker.cmd' : 'docker';
+  return spawn(docker, (cmd || 'build .').split(' '), {cwd});
+}
+
+/**
+ * runs yo internally
+ * @param generator
+ * @param options
+ * @param cwd
+ */
+function yo(generator, options, cwd) {
   const yeoman = require('yeoman-environment');
   // call yo internally
   const env = yeoman.createEnv([], {
@@ -39,7 +76,7 @@ function yo(generator, cwd) {
   return new Promise((resolve, reject) => {
     try {
       console.log('running yo phovea:' + generator);
-      env.run('phovea:' + generator, resolve);
+      env.run('phovea:' + generator, options, resolve);
     } catch (e) {
       console.error('error', e, e.stack);
       reject(e);
@@ -49,41 +86,41 @@ function yo(generator, cwd) {
 
 function cloneRepo(p, cwd) {
   p.branch = p.branch || 'master';
-  console.log(chalk.blue(`running git clone -b ${p.branch} ${toRepoUrl(p.repo)}`));
-  return spawn('git', ['clone', '-b', p.branch, toRepoUrl(p.repo)], {cwd});
+  console.log(chalk.blue(`running git clone --depth 1 -b ${p.branch} ${toRepoUrl(p.repo)}`));
+  return spawn('git', ['clone', '--depth', '1', '-b', p.branch, toRepoUrl(p.repo)], {cwd});
 }
 
 function moveToBuild(p, cwd) {
   return mkdirp.mkdirpAsync('build')
-      .then(() => spawn('mv', [`${p.name}/dist/*.tar.gz`, '../build/'], {cwd}));
+    .then(() => spawn('mv', [`${p.name}/dist/*.tar.gz`, '../build/'], {cwd}));
 }
 
 function buildCommon(p, dir) {
   const hasAdditional = p.additional.length > 0;
   let act = spawn('rm', ['-rf', dir])
-      .then(() => mkdirp.mkdirpAsync(dir))
-      .then(() => cloneRepo(p, dir));
+    .then(() => mkdirp.mkdirpAsync(dir))
+    .then(() => cloneRepo(p, dir));
   if (hasAdditional) {
     act = act
-        .then(() => Promise.all(p.additional.map((pi) => cloneRepo(pi, dir))));
+      .then(() => Promise.all(p.additional.map((pi) => cloneRepo(pi, dir))));
   }
   return act;
 }
 
-function buildWebApp(p, dir) {
+function buildWebApp(p, dir, serverLess) {
   const name = p.name;
   const hasAdditional = p.additional.length > 0;
   console.log(chalk.blue('Building web application:'), p.name);
   let act = buildCommon(p, dir);
   if (hasAdditional) {
     act = act
-        .then(() => yo('ueber', dir))
-        .then(() => npm(dir, 'install'))
-        .then(() => npm(dir, `run dist:${p.name}`));
+      .then(() => yo('workspace', { noAdditionals: true}, dir))
+      .then(() => npm(dir, 'install'))
+      .then(() => npm(dir, `run dist:${p.name}`, { PHOVEA_SKIP_TESTS: true }));
   } else {
     act = act
-        .then(() => npm(dir + '/' + name, 'install'))
-        .then(() => npm(dir + '/' + name, 'run dist'));
+      .then(() => npm(dir + '/' + name, 'install'))
+      .then(() => npm(dir + '/' + name, 'run dist', { PHOVEA_SKIP_TESTS: true }));
   }
   act = act.then(() => moveToBuild(p, dir));
   act.catch((error) => {
@@ -125,6 +162,8 @@ if (require.main === module) {
     switch (d.type) {
       case 'web':
         return buildWebApp(d, './tmp' + i);
+      case 'static':
+        return buildWebApp(d, './tmp' + i, true);
       case 'api':
         return buildApiApp(d, './tmp' + i);
       case 'service':

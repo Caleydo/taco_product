@@ -4,20 +4,20 @@
 
 module.exports = [
   {
-    type: 'web__',
+    type: 'web',
     name: 'taco',
-    repo: 'caleydo/taco',
-    branch: 'migrate',
+    repo: 'Caleydo/taco',
+    branch: 'deploy',
     additional: []
   },
   {
-    type: 'api',
+    type: 'api__',
     name: 'taco_server',
-    repo: 'caleydo/taco_server',
-    branch: 'migrate',
+    repo: 'Caleydo/taco_server',
+    branch: 'deploy',
     additional: [{
       repo: 'phovea/phovea_data_hdf',
-      branch: 'master'
+      branch: 'docker_env'
     }]
   }
 ];
