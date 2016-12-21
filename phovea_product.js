@@ -4,14 +4,14 @@
 
 module.exports = [
   {
-    type: 'web',
+    type: 'web__',
     name: 'taco',
     repo: 'Caleydo/taco',
     branch: 'deploy',
     additional: []
   },
   {
-    type: 'api__',
+    type: 'api',
     name: 'taco_server',
     repo: 'Caleydo/taco_server',
     branch: 'deploy',

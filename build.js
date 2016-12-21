@@ -41,7 +41,6 @@ function spawn(cmd, args, opts) {
  * run npm with the given args
  * @param cwd working directory
  * @param cmd the command to execute as a string
- * @param env options env variables
  * @return {*}
  */
 function npm(cwd, cmd) {
@@ -70,17 +69,21 @@ function docker(cwd, cmd) {
 function yo(generator, options, cwd) {
   const yeoman = require('yeoman-environment');
   // call yo internally
-  const env = yeoman.createEnv([], {cwd, env});
-  env.register(require.resolve('geneator-phovea/generators/' + generator), 'phovea:' + generator);
-  return new Promise((resolve, reject) => {
+  const yeomanEnv = yeoman.createEnv([], {cwd, env});
+  yeomanEnv.register(require.resolve('generator-phovea/generators/' + generator), 'phovea:' + generator);
+  const runYo = () => new Promise((resolve, reject) => {
     try {
       console.log('running yo phovea:' + generator);
-      env.run('phovea:' + generator, options, resolve);
+      yeomanEnv.run('phovea:' + generator, options, resolve);
     } catch (e) {
       console.error('error', e, e.stack);
       reject(e);
     }
   });
+  // move my own .yo-rc.json to avoid a conflict
+  return spawn('mv', ['.yo-rc.json', '.yo-rc_tmp.json'])
+    .then(runYo)
+    .then(() => spawn('mv', ['.yo-rc_tmp.json', '.yo-rc.json']));
 }
 
 function cloneRepo(p, cwd) {
@@ -114,16 +117,17 @@ function buildWebApp(p, dir, serverLess) {
   //let act = Promise.resolve(null);
   if (hasAdditional) {
     act = act
-      .then(() => yo('workspace', { noAdditionals: true}, dir))
+      .then(() => yo('workspace', {noAdditionals: true}, dir))
       .then(() => npm(dir, 'install'))
       .then(() => npm(dir, `run dist:${p.name}`));
   } else {
     act = act
       .then(() => npm(dir + '/' + name, 'install'))
-      .then(() => npm(dir + '/' + name, 'run dist'))
-      .then(() => docker(dir + '/' + name, `build -t ${p.name}:${pkg.version} -f deploy/Dockerfile .`));
+      .then(() => npm(dir + '/' + name, 'run dist'));
   }
-  act = act.then(() => moveToBuild(p, dir));
+  act = act
+    .then(() => docker(dir + '/' + name, `build -t ${p.name}:${pkg.version} -f deploy/Dockerfile .`))
+    .then(() => moveToBuild(p, dir));
   act.catch((error) => {
     console.error('ERROR', error);
   });
@@ -135,7 +139,10 @@ function buildApiApp(p, dir) {
   const hasAdditional = p.additional.length > 0;
 
   let act = buildCommon(p, dir);
-  act = act.then(() => cloneRepo({repo: 'phovea/phovea_server', branch: 'master'}, dir));
+  //let act = Promise.resolve([]);
+  act = act
+    .then(() => yo('resolve', {ssh: false, workspace: false, type: 'server'}, dir))
+    .then(() => yo('workspace', {noAdditionals: true}, dir))
 
   console.error(chalk.red.bold('TODO building', p.name));
   act.catch((error) => {
