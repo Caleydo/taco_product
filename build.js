@@ -58,8 +58,7 @@ function npm(cwd, cmd) {
  */
 function docker(cwd, cmd) {
   console.log(chalk.blue('running docker', cmd));
-  const docker = process.platform === 'win32' ? 'docker.cmd' : 'docker';
-  return spawn(docker, (cmd || 'build .').split(' '), {cwd, env});
+  return spawn('docker', (cmd || 'build .').split(' '), {cwd, env});
 }
 
 /**
@@ -112,6 +111,7 @@ function buildWebApp(p, dir, serverLess) {
   const hasAdditional = p.additional.length > 0;
   console.log(chalk.blue('Building web application:'), p.name);
   let act = buildCommon(p, dir);
+  //let act = Promise.resolve(null);
   if (hasAdditional) {
     act = act
       .then(() => yo('workspace', { noAdditionals: true}, dir))
@@ -120,7 +120,8 @@ function buildWebApp(p, dir, serverLess) {
   } else {
     act = act
       .then(() => npm(dir + '/' + name, 'install'))
-      .then(() => npm(dir + '/' + name, 'run dist'));
+      .then(() => npm(dir + '/' + name, 'run dist'))
+      .then(() => docker(dir + '/' + name, `build -t ${p.name}:${pkg.version} -f deploy/Dockerfile .`));
   }
   act = act.then(() => moveToBuild(p, dir));
   act.catch((error) => {
