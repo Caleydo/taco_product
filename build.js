@@ -44,7 +44,7 @@ function spawn(cmd, args, opts) {
  * @return {*}
  */
 function npm(cwd, cmd) {
-  console.log(chalk.blue('running npm', cmd));
+  console.log(cwd, chalk.blue('running npm', cmd));
   const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
   return spawn(npm, (cmd || 'install').split(' '), {cwd, env});
 }
@@ -56,7 +56,7 @@ function npm(cwd, cmd) {
  * @return {*}
  */
 function docker(cwd, cmd) {
-  console.log(chalk.blue('running docker', cmd));
+  console.log(cwd, chalk.blue('running docker', cmd));
   return spawn('docker', (cmd || 'build .').split(' '), {cwd, env});
 }
 
@@ -73,7 +73,7 @@ function yo(generator, options, cwd) {
   yeomanEnv.register(require.resolve('generator-phovea/generators/' + generator), 'phovea:' + generator);
   const runYo = () => new Promise((resolve, reject) => {
     try {
-      console.log('running yo phovea:' + generator);
+      console.log(cwd, chalk.blue('running yo phovea:' + generator));
       yeomanEnv.run('phovea:' + generator, options, resolve);
     } catch (e) {
       console.error('error', e, e.stack);
@@ -89,7 +89,7 @@ function yo(generator, options, cwd) {
 function cloneRepo(p, cwd) {
   p.repo = p.repo || `phovea/${p.name}`;
   p.branch = p.branch || 'master';
-  console.log(chalk.blue(`running git clone --depth 1 -b ${p.branch} ${toRepoUrl(p.repo)} ${p.name}`));
+  console.log(cwd, chalk.blue(`running git clone --depth 1 -b ${p.branch} ${toRepoUrl(p.repo)} ${p.name}`));
   return spawn('git', ['clone', '--depth', '1', '-b', p.branch, toRepoUrl(p.repo), p.name], {cwd});
 }
 
@@ -152,9 +152,9 @@ function buildServerApp(p, dir) {
   //let act = Promise.resolve([]);
 
   act = act
-    .then(() => console.log(chalk.yellow('create test environment')));
-    .then(() => npm(dir + '/' + name, 'run build'));
-    .then(() => Promise.all(p.additional.map((pi) => npm(dir+'/'+pi.name, `run build`))));
+    .then(() => console.log(chalk.yellow('create test environment')))
+    .then(() => npm(dir + '/' + name, 'run build'))
+    .then(() => Promise.all(p.additional.map((pi) => npm(dir + '/' + pi.name, `run build`))));
 
   //copy all together
   act = act
