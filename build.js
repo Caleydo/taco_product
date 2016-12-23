@@ -4,8 +4,7 @@
 
 const Promise = require('bluebird');
 const path = require('path');
-const fs = Promise.promisifyAll(require('fs'));
-const mkdirp = Promise.promisifyAll(require('mkdirp'));
+const fs = Promise.promisifyAll(require('fs-extra'));
 const chalk = require('chalk');
 const pkg = require('./package.json');
 const argv = require('yargs-parser')(process.argv.slice(2));
@@ -18,7 +17,14 @@ pkg.version = pkg.version.replace('SNAPSHOT', buildId);
 const env = Object.assign({}, process.env);
 
 function toRepoUrl(url) {
-  return url.startsWith('http') ? url : `https://github.com/${url}`;
+  return url.startsWith('https://github.com/') ? url : `https://github.com/${url}`;
+}
+
+function fromRepoUrl(url) {
+  if (url.includes('.git')) {
+    return url.match(/\/(.*)\.git/)[0]
+  }
+  return url.slice(url.lastIndexOf('/') + 1);
 }
 
 
@@ -39,6 +45,7 @@ function spawn(cmd, args, opts) {
     p.on('close', (code) => code == 0 ? resolve() : reject(code));
   });
 }
+
 
 /**
  * run npm with the given args
@@ -61,6 +68,23 @@ function npm(cwd, cmd) {
 function docker(cwd, cmd) {
   console.log(cwd, chalk.blue('running docker', cmd));
   return spawn('docker', (cmd || 'build .').split(' '), {cwd, env});
+}
+
+function dockerSave(image, target) {
+  console.log(chalk.blue(`running docker save ${image} | gzip > ${target}`));
+  const spawn = require('child_process').spawn;
+  const opts = {env};
+  return new Promise((resolve, reject) => {
+    const p = spawn('docker', ['save', image], opts);
+    const p2 = spawn('gzip', [], opts);
+    p.stdout.pipe(p2.stdin);
+    p2.stdout.pipe(fs.createWriteStream(target));
+    if (!quiet) {
+      p.stderr.on('data', (data) => console.error(chalk.red(data.toString())));
+      p2.stderr.on('data', (data) => console.error(chalk.red(data.toString())));
+    }
+    p2.on('close', (code) => code == 0 ? resolve() : reject(code));
+  });
 }
 
 function createQuietTerminalAdapter() {
@@ -93,27 +117,23 @@ function yo(generator, options, cwd) {
     }
   });
   // move my own .yo-rc.json to avoid a conflict
-  return spawn('mv', ['.yo-rc.json', '.yo-rc_tmp.json'])
+  return fs.renameAsync('.yo-rc.json', '.yo-rc_tmp.json')
     .then(runYo)
-    .then(() => spawn('mv', ['.yo-rc_tmp.json', '.yo-rc.json']));
+    .then(() => fs.renameAsync('.yo-rc_tmp.json', '.yo-rc.json'));
 }
 
 function cloneRepo(p, cwd) {
+  // either of them has to be defined
+  p.name = p.name || fromRepoUrl(p.repo);
   p.repo = p.repo || `phovea/${p.name}`;
   p.branch = p.branch || 'master';
   console.log(cwd, chalk.blue(`running git clone --depth 1 -b ${p.branch} ${toRepoUrl(p.repo)} ${p.name}`));
   return spawn('git', ['clone', '--depth', '1', '-b', p.branch, toRepoUrl(p.repo), p.name], {cwd});
 }
 
-function moveToBuild(p, cwd) {
-  return mkdirp.mkdirpAsync('build')
-    .then(() => spawn('mv', [`${p.name}/dist/${p.name}.tar.gz`, `../build/${p.label}.tar.gz`], {cwd}));
-}
-
 function preBuild(p, dir) {
   const hasAdditional = p.additional.length > 0;
-  let act = spawn('rm', ['-rf', dir])
-    .then(() => mkdirp.mkdirpAsync(dir))
+  let act = fs.emptyDir(dir)
     .then(() => cloneRepo(p, dir));
   if (hasAdditional) {
     act = act
@@ -147,15 +167,15 @@ function patchComposeFile(p, composeTemplate) {
   const r = {
     version: '2.0',
     services: {}
-  }
+  };
   r.services[p.label] = service;
   return r;
 }
 
 function postBuild(p, dir, buildInSubDir) {
-  const hasAdditional = p.additional.length > 0;
   return Promise.resolve(null)
-    //.then(() => docker(`${dir}${buildInSubDir ? '/' + p.name : ''}`, `build -t ${p.image} -f deploy/Dockerfile .`))
+    .then(() => docker(`${dir}${buildInSubDir ? '/' + p.name : ''}`, `build -t ${p.image} -f deploy/Dockerfile .`))
+    .then(() => dockerSave(p.image, `build/${p.label}_image.tar.gz`))
     .then(() => Promise.all([loadComposeFile(dir, p).then(patchComposeFile.bind(null, p))].concat(p.additional.map((pi) => loadComposeFile(dir, pi)))))
     .then(mergeCompose);
 }
@@ -182,14 +202,13 @@ function buildWebApp(p, dir) {
       .then(() => npm(dir + '/' + name, 'run dist'));
   }
   return act
-    .then(moveToBuild.bind(null, p, dir))
+    .then(() => fs.renameAsync(`${dir}/${p.name}/dist/${p.name}.tar.gz`, `./build/${p.label}.tar.gz`))
     .then(postBuild.bind(null, p, dir, true));
 }
 
 function buildServerApp(p, dir) {
-  console.log(dir, chalk.blue('building server package:'), p.label);
+  console.log(dir, chalk.blue('building service package:'), p.label);
   const name = p.name;
-  const hasAdditional = p.additional.length > 0;
 
   let act = preBuild(p, dir);
   act = act
@@ -202,27 +221,27 @@ function buildServerApp(p, dir) {
 
   //copy all together
   act = act
-    .then(() => spawn('mkdir', ['-p', `${dir}/build`]))
-    .then(() => spawn('cp', ['-r', `${dir}/${name}/build/source`, `${dir}/build/`]))
-    .then(() => Promise.all(p.additional.map((pi) => spawn('cp', ['-r', `${dir}/${pi.name}/build/source/*`, `${dir}/build/source/`]))));
+    .then(() => fs.ensureDirAsync(`${dir}/build`))
+    .then(() => fs.copyAsync(`${dir}/${name}/build/source`, `${dir}/build/`))
+    .then(() => Promise.all(p.additional.map((pi) => fs.copyAsync(`${dir}/${pi.name}/build/source/*`, `${dir}/build/source/`))));
 
   //let act = Promise.resolve([]);
 
   //copy main deploy thing and create a docker out of it
   return act
-    .then(() => spawn('cp', ['-r', `${dir}/${name}/deploy`, `${dir}/`]))
+    .then(() => fs.copyAsync(`${dir}/${name}/deploy`, `${dir}/`))
     .then(postBuild.bind(null, p, dir, false));
 }
 
 function buildImpl(d, dir) {
-  return postBuild(d, dir);
   switch (d.type) {
     case 'static':
     case 'web':
       return buildWebApp(d, dir);
     case 'api':
       d.name = d.name || 'phovea_server';
-    case 'server':
+      return buildServerApp(d, dir);
+    case 'service':
       return buildServerApp(d, dir);
     default:
       console.error(chalk.red('unknown product type: ' + d.type));
@@ -250,7 +269,7 @@ function buildCompose(descs, composePartials) {
       services[w].links.push(`${s}:api`);
     });
   });
-  descs.filter((d) => d.type === 'server').forEach((s) => {
+  descs.filter((d) => d.type === 'service').forEach((s) => {
     api.forEach((w) => {
       services[w].links = services[w].links || [];
       services[w].links.push(`${s.label}:${s.name}`);
@@ -266,20 +285,26 @@ if (require.main === module) {
     console.log(chalk.blue('skipping tests'));
     env.PHOVEA_SKIP_TESTS = true;
   }
-  const descs = require('./phovea_product');
-  const all = Promise.all(descs.map((d, i) => {
-    d.additional = d.additional || []; //default values
-    d.label = d.label || d.name;
-    d.image = `${d.label}:${pkg.version}`;
-    let wait = buildImpl(d, './tmp' + i);
-    wait.catch((error) => {
-      d.error = error;
-      console.error('ERROR building ', d, error);
-    });
-    return wait;
-  }));
+  if (argv.quiet) {
+    // if skipTest option is set, skip tests
+    console.log(chalk.blue('will try to keep my mouth shut...'));
+  }
+  const descs = require('./phovea_product.json');
 
-  all.then((composeFiles) => buildCompose(descs, composeFiles.filter((d) => !!d)))
+  fs.emptyDirAsync('build')
+    .then(() => Promise.all(descs.map((d, i) => {
+      d.additional = d.additional || []; //default values
+      d.name = d.name || fromRepoUrl(d.repo);
+      d.label = d.label || d.name;
+      d.image = `${d.label}:${pkg.version}`;
+      let wait = buildImpl(d, './tmp' + i);
+      wait.catch((error) => {
+        d.error = error;
+        console.error('ERROR building ', d, error);
+      });
+      return wait;
+    })))
+    .then((composeFiles) => buildCompose(descs, composeFiles.filter((d) => !!d)))
     .then(() => {
       console.log(chalk.bold('summary: '));
       const maxLength = Math.max(...descs.map((d) => d.name.length));

@@ -1,0 +1,23 @@
+[
+  {
+    "type": "web",
+    "name": "taco",
+    "repo": "Caleydo/taco",
+    "branch": "deploy",
+    "additional": []
+  },
+  {
+    "type": "api",
+    "label": "taco_server",
+    "name": "phovea_server",
+    "branch": "docker_env",
+    "additional": [{
+      "name": "phovea_data_hdf",
+      "branch": "docker_env"
+    }, {
+      "name": "taco_server",
+      "repo": "Caleydo/taco_server",
+      "branch": "deploy"
+    }]
+  }
+]
