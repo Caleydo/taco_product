@@ -11,7 +11,7 @@ module.exports = [
     additional: []
   },
   {
-    type: 'server',
+    type: 'api',
     label: 'taco_server',
     name: 'phovea_server',
     branch: 'docker_env',

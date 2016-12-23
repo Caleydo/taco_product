@@ -66,7 +66,9 @@ function docker(cwd, cmd) {
 function createQuietTerminalAdapter() {
   const TerminalAdapter = require('yeoman-environment/lib/adapter');
   const impl = new TerminalAdapter();
-  impl.log.write = () => undefined;
+  impl.log.write = function () {
+    return this;
+  };
   return impl;
 }
 
@@ -121,34 +123,39 @@ function preBuild(p, dir) {
 }
 
 function loadComposeFile(dir, p) {
-  const composeFile = `${dir}/${p}/deploy/docker-compose.partial.yml`;
-  return this.fs.stats(composeFile).then((stats) => {
-    if (stats.isFile()) {
-      const yaml = require('yamljs');
-      return this.fs.readFile(composeFile).then(yaml.parse.bind(yaml));
-    } else {
-      return {};
-    }
-  })
+  const composeFile = `${dir}/${p.name}/deploy/docker-compose.partial.yml`;
+  if (fs.existsSync(composeFile)) {
+    const yaml = require('yamljs');
+    return fs.readFileAsync(composeFile).then((content) => yaml.parse(content.toString()));
+  } else {
+    return Promise.resolve({});
+  }
 }
 
 function patchComposeFile(p, composeTemplate) {
-  const r = { };
-  r[p.label] = { };
+  const service = {};
   if (composeTemplate && composeTemplate.services) {
     const firstService = Object.keys(composeTemplate.services)[0];
     //copy data from first service
-    Object.assign(r, firstService);
-    delete r.build;
+    Object.assign(service, composeTemplate.services[firstService]);
+    delete service.build;
   }
-  r.image = p.image;
+  service.image = p.image;
+  if (p.type === 'web' || p.type === 'static') {
+    service.ports = ['80:80'];
+  }
+  const r = {
+    version: '2.0',
+    services: {}
+  }
+  r.services[p.label] = service;
   return r;
 }
 
 function postBuild(p, dir, buildInSubDir) {
   const hasAdditional = p.additional.length > 0;
   return Promise.resolve(null)
-    .then(() => docker(`${dir}${buildInSubDir ? '/'+p.name : ''}`, `build -t ${p.image} -f deploy/Dockerfile .`))
+    //.then(() => docker(`${dir}${buildInSubDir ? '/' + p.name : ''}`, `build -t ${p.image} -f deploy/Dockerfile .`))
     .then(() => Promise.all([loadComposeFile(dir, p).then(patchComposeFile.bind(null, p))].concat(p.additional.map((pi) => loadComposeFile(dir, pi)))))
     .then(mergeCompose);
 }
@@ -208,9 +215,13 @@ function buildServerApp(p, dir) {
 }
 
 function buildImpl(d, dir) {
+  return postBuild(d, dir);
   switch (d.type) {
+    case 'static':
     case 'web':
       return buildWebApp(d, dir);
+    case 'api':
+      d.name = d.name || 'phovea_server';
     case 'server':
       return buildServerApp(d, dir);
     default:
@@ -227,10 +238,26 @@ function mergeCompose(composePartials) {
   return dockerCompose;
 }
 
-function buildCompose(composePartials) {
+function buildCompose(descs, composePartials) {
   const dockerCompose = mergeCompose(composePartials);
+  const services = dockerCompose.services;
+  // link the api server types to the web types and server to the api
+  const web = descs.filter((d) => d.type === 'web').map((d) => d.label);
+  const api = descs.filter((d) => d.type === 'api').map((d) => d.label);
+  api.forEach((s) => {
+    web.forEach((w) => {
+      services[w].links = services[w].links || [];
+      services[w].links.push(`${s}:api`);
+    });
+  });
+  descs.filter((d) => d.type === 'server').forEach((s) => {
+    api.forEach((w) => {
+      services[w].links = services[w].links || [];
+      services[w].links.push(`${s.label}:${s.name}`);
+    });
+  });
   const yaml = require('yamljs');
-  return fs.writeFile('build/docker-compose.yml', yaml.stringify(dockerCompose, 100, 2));
+  return fs.writeFileAsync('build/docker-compose.yml', yaml.stringify(dockerCompose, 100, 2));
 }
 
 if (require.main === module) {
@@ -252,10 +279,10 @@ if (require.main === module) {
     return wait;
   }));
 
-  all.then((composeFiles) => buildCompose(composeFiles.filter((d) => !!d)))
+  all.then((composeFiles) => buildCompose(descs, composeFiles.filter((d) => !!d)))
     .then(() => {
       console.log(chalk.bold('summary: '));
-      const maxLength = Math.max(...desc.map((d) => d.name.length));
-      descs.forEach((d) => console.log(` ${d.name}${'.'.repeat(3 + (d.name.length - maxLength))}` + (d.error ? chalk.red('ERROR') : chalk.green('SUCCESS'))));
+      const maxLength = Math.max(...descs.map((d) => d.name.length));
+      descs.forEach((d) => console.log(` ${d.name}${'.'.repeat(3 + (maxLength - d.name.length))}` + (d.error ? chalk.red('ERROR') : chalk.green('SUCCESS'))));
     });
 }
