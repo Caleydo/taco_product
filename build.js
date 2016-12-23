@@ -4,7 +4,7 @@
 
 const Promise = require('bluebird');
 const path = require('path');
-const fs = require('fs');
+const fs = Promise.promisifyAll(require('fs'));
 const mkdirp = Promise.promisifyAll(require('mkdirp'));
 const chalk = require('chalk');
 const pkg = require('./package.json');
@@ -64,8 +64,9 @@ function docker(cwd, cmd) {
 }
 
 function createQuietTerminalAdapter() {
-  const impl = new require('yeoman-environment/adapter');
-  impl.log = () => undefined;
+  const TerminalAdapter = require('yeoman-environment/lib/adapter');
+  const impl = new TerminalAdapter();
+  impl.log.write = () => undefined;
   return impl;
 }
 
@@ -107,7 +108,7 @@ function moveToBuild(p, cwd) {
     .then(() => spawn('mv', [`${p.name}/dist/${p.name}.tar.gz`, `../build/${p.label}.tar.gz`], {cwd}));
 }
 
-function buildCommon(p, dir) {
+function preBuild(p, dir) {
   const hasAdditional = p.additional.length > 0;
   let act = spawn('rm', ['-rf', dir])
     .then(() => mkdirp.mkdirpAsync(dir))
@@ -119,11 +120,44 @@ function buildCommon(p, dir) {
   return act;
 }
 
+function loadComposeFile(dir, p) {
+  const composeFile = `${dir}/${p}/deploy/docker-compose.partial.yml`;
+  return this.fs.stats(composeFile).then((stats) => {
+    if (stats.isFile()) {
+      const yaml = require('yamljs');
+      return this.fs.readFile(composeFile).then(yaml.parse.bind(yaml));
+    } else {
+      return {};
+    }
+  })
+}
+
+function patchComposeFile(p, composeTemplate) {
+  const r = { };
+  r[p.label] = { };
+  if (composeTemplate && composeTemplate.services) {
+    const firstService = Object.keys(composeTemplate.services)[0];
+    //copy data from first service
+    Object.assign(r, firstService);
+    delete r.build;
+  }
+  r.image = p.image;
+  return r;
+}
+
+function postBuild(p, dir, buildInSubDir) {
+  const hasAdditional = p.additional.length > 0;
+  return Promise.resolve(null)
+    .then(() => docker(`${dir}${buildInSubDir ? '/'+p.name : ''}`, `build -t ${p.image} -f deploy/Dockerfile .`))
+    .then(() => Promise.all([loadComposeFile(dir, p).then(patchComposeFile.bind(null, p))].concat(p.additional.map((pi) => loadComposeFile(dir, pi)))))
+    .then(mergeCompose);
+}
+
 function buildWebApp(p, dir) {
   console.log(dir, chalk.blue('building web application:'), p.label);
   const name = p.name;
   const hasAdditional = p.additional.length > 0;
-  let act = buildCommon(p, dir);
+  let act = preBuild(p, dir);
   //let act = Promise.resolve(null);
   if (hasAdditional) {
     act = act
@@ -140,13 +174,9 @@ function buildWebApp(p, dir) {
       .then(() => npm(dir + '/' + name, 'install'))
       .then(() => npm(dir + '/' + name, 'run dist'));
   }
-  act = act
-    .then(() => docker(dir + '/' + name, `build -t ${p.label}:${pkg.version} -f deploy/Dockerfile .`))
-    .then(() => moveToBuild(p, dir));
-  act.catch((error) => {
-    console.error('ERROR', error);
-  });
-  return act.then(() => `${p.label}:${pkg.version}`);
+  return act
+    .then(moveToBuild.bind(null, p, dir))
+    .then(postBuild.bind(null, p, dir, true));
 }
 
 function buildServerApp(p, dir) {
@@ -154,7 +184,7 @@ function buildServerApp(p, dir) {
   const name = p.name;
   const hasAdditional = p.additional.length > 0;
 
-  // let act = buildCommon(p, dir);
+  let act = preBuild(p, dir);
   act = act
     .then(() => yo('workspace', {noAdditionals: true}, dir));
 
@@ -172,14 +202,35 @@ function buildServerApp(p, dir) {
   //let act = Promise.resolve([]);
 
   //copy main deploy thing and create a docker out of it
-  act = act
+  return act
     .then(() => spawn('cp', ['-r', `${dir}/${name}/deploy`, `${dir}/`]))
-    .then(() => docker(dir, `build -t ${p.label}:${pkg.version} -f deploy/Dockerfile .`));
+    .then(postBuild.bind(null, p, dir, false));
+}
 
-  act.catch((error) => {
-    console.error('ERROR', error);
-  });
-  return act.then(() => `${p.label}:${pkg.version}`);
+function buildImpl(d, dir) {
+  switch (d.type) {
+    case 'web':
+      return buildWebApp(d, dir);
+    case 'server':
+      return buildServerApp(d, dir);
+    default:
+      console.error(chalk.red('unknown product type: ' + d.type));
+      return Promise.resolve(null);
+  }
+}
+
+function mergeCompose(composePartials) {
+  let dockerCompose = {};
+  const _ = require('lodash');
+  const mergeArrayUnion = (a, b) => Array.isArray(a) ? _.union(a, b) : undefined;
+  composePartials.forEach((c) => _.mergeWith(dockerCompose, c, mergeArrayUnion));
+  return dockerCompose;
+}
+
+function buildCompose(composePartials) {
+  const dockerCompose = mergeCompose(composePartials);
+  const yaml = require('yamljs');
+  return fs.writeFile('build/docker-compose.yml', yaml.stringify(dockerCompose, 100, 2));
 }
 
 if (require.main === module) {
@@ -192,20 +243,19 @@ if (require.main === module) {
   const all = Promise.all(descs.map((d, i) => {
     d.additional = d.additional || []; //default values
     d.label = d.label || d.name;
-    switch (d.type) {
-      case 'web':
-        return buildWebApp(d, './tmp' + i);
-      case 'server':
-        return buildServerApp(d, './tmp' + i);
-      default:
-        console.error(chalk.red('unknown product type: ' + d.type));
-        return Promise.resolve(null);
-    }
+    d.image = `${d.label}:${pkg.version}`;
+    let wait = buildImpl(d, './tmp' + i);
+    wait.catch((error) => {
+      d.error = error;
+      console.error('ERROR building ', d, error);
+    });
+    return wait;
   }));
 
-  all.then((images) => {
-    console.log('done');
-    console.log('docker images');
-    console.log(' ', chalk.blue(images.join('\n  ')));
-  });
+  all.then((composeFiles) => buildCompose(composeFiles.filter((d) => !!d)))
+    .then(() => {
+      console.log(chalk.bold('summary: '));
+      const maxLength = Math.max(...desc.map((d) => d.name.length));
+      descs.forEach((d) => console.log(` ${d.name}${'.'.repeat(3 + (d.name.length - maxLength))}` + (d.error ? chalk.red('ERROR') : chalk.green('SUCCESS'))));
+    });
 }
