@@ -133,7 +133,7 @@ function cloneRepo(p, cwd) {
 
 function preBuild(p, dir) {
   const hasAdditional = p.additional.length > 0;
-  let act = fs.emptyDir(dir)
+  let act = fs.emptyDirAsync(dir)
     .then(() => cloneRepo(p, dir));
   if (hasAdditional) {
     act = act
