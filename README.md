@@ -7,7 +7,7 @@ Installation
 ------------
 
 ```
-git clone git@github.com:Caleydo/taco_product.git
+git clone https://github.com/Caleydo/taco_product.git
 cd taco_product
 npm install
 ```
