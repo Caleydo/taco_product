@@ -274,6 +274,7 @@ function mergeCompose(composePartials) {
 }
 
 function buildCompose(descs, composePartials) {
+  console.log('create docker-compose.yml');
   const dockerCompose = mergeCompose(composePartials);
   const services = dockerCompose.services;
   // link the api server types to the web types and server to the api
@@ -301,6 +302,7 @@ function pushImages(dockerCompose) {
   if (!dockerRepository) {
     return null;
   }
+  console.log('push docker images');
   const services = dockerCompose.services;
 
   //collect all images
