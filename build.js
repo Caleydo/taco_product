@@ -362,5 +362,7 @@ if (require.main === module) {
       console.log(chalk.bold('summary: '));
       const maxLength = Math.max(...descs.map((d) => d.name.length));
       descs.forEach((d) => console.log(` ${d.name}${'.'.repeat(3 + (maxLength - d.name.length))}` + (d.error ? chalk.red('ERROR') : chalk.green('SUCCESS'))));
+    }).catch((error) => {
+      console.error('ERROR extra building ', error);
     });
 }
