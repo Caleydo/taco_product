@@ -237,15 +237,16 @@ function buildServerApp(p, dir) {
 
   //copy all together
   act = act
-    .then(() => fs.ensureDirAsync(`${dir}/build`))
-    .then(() => fs.copyAsync(`${dir}/${name}/build/source`, `${dir}/build/`))
-    .then(() => Promise.all(p.additional.map((pi) => fs.copyAsync(`${dir}/${pi.name}/build/source/*`, `${dir}/build/source/`))));
+    .then(() => fs.ensureDirAsync(`${dir}/build/source`))
+    .then(() => fs.copyAsync(`${dir}/${name}/build/source`, `${dir}/build/source/`))
+    .then(() => Promise.all(p.additional.map((pi) => fs.copyAsync(`${dir}/${pi.name}/build/source`, `${dir}/build/source/`))));
 
   //let act = Promise.resolve([]);
 
   //copy main deploy thing and create a docker out of it
   return act
-    .then(() => fs.copyAsync(`${dir}/${name}/deploy`, `${dir}/`))
+    .then(() => fs.ensureDirAsync(`${dir}/deploy`))
+    .then(() => fs.copyAsync(`${dir}/${name}/deploy`, `${dir}/deploy/`))
     .then(postBuild.bind(null, p, dir, false));
 }
 
@@ -362,7 +363,12 @@ if (require.main === module) {
       console.log(chalk.bold('summary: '));
       const maxLength = Math.max(...descs.map((d) => d.name.length));
       descs.forEach((d) => console.log(` ${d.name}${'.'.repeat(3 + (maxLength - d.name.length))}` + (d.error ? chalk.red('ERROR') : chalk.green('SUCCESS'))));
+      const anyErrors = desc.some((d) => d.error);
+      if (anyErrors) {
+        process.exit(1);
+      }
     }).catch((error) => {
       console.error('ERROR extra building ', error);
+      process.exit(1);
     });
 }
