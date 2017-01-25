@@ -31,7 +31,7 @@ npm run build
 ***
 
 <a href="https://caleydo.org"><img src="http://caleydo.org/assets/images/logos/caleydo.svg" align="left" width="200px" hspace="10" vspace="6"></a>
-This repository is part of **[Phovea](http://phovea.caleydo.org/)**, a platform for developing web-based visualization applications. For tutorials, API docs, and more information about the build and deployment process, see the [documentation page](http://phovea.caleydo.org).
+This repository is part of **[Phovea](http://phovea.caleydo.org/)**, a platform for developing web-based visualization applications. For tutorials, API docs, and more information about the build and deployment process, see the [documentation page](http://caleydo.org/documentation/).
 
 
 [phovea-image]: https://img.shields.io/badge/Phovea-Product-FABC15.svg
@@ -40,5 +40,5 @@ This repository is part of **[Phovea](http://phovea.caleydo.org/)**, a platform 
 [npm-url]: https://npmjs.org/package/taco_product
 [travis-image]: https://travis-ci.org/Caleydo/taco_product.svg?branch=master
 [travis-url]: https://travis-ci.org/Caleydo/taco_product
-[daviddm-image]: https://david-dm.org/Caleydo/taco_product/status.svg
+[daviddm-image]: https://david-dm.org/Caleydo/taco_product.svg?theme=shields.io
 [daviddm-url]: https://david-dm.org/Caleydo/taco_product
