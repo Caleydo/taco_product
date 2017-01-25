@@ -41,15 +41,13 @@ function fromRepoUrl(url) {
   return url.slice(url.lastIndexOf('/') + 1);
 }
 
-function downloadDataFile(url, dest) {
+function downloadDataUrl(url, dest) {
   if (!url.startsWith('http')) {
     url = `https://s3.eu-central-1.amazonaws.com/phovea-data-packages/${url}`;
   }
-  const http = require(url.startsWith('https') ? 'https': 'http');
-  const dir = path.dirname(dest);
-
+  const http = require(url.startsWith('https') ? 'https' : 'http');
   console.log(chalk.blue('download file', url));
-  return fs.ensureDirAsync(dir).then(() => new Promise((resolve, reject) => {
+  return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(dest);
     const request = http.get(url, (response) => {
       response.pipe(file);
@@ -57,12 +55,39 @@ function downloadDataFile(url, dest) {
         file.close(resolve);
       });
     }).on('error', reject);
-  }));
+  });
 }
 
 function toDownloadName(url) {
   if (!url.startsWith('http')) {
     return url;
+  }
+  return url.substring(url.lastIndexOf('/') + 1);
+}
+
+function downloadDataFile(desc, destDir, cwd) {
+  if (typeof desc === 'string') {
+    desc = {
+      type: 'url',
+      url: desc
+    };
+  }
+  switch(desc.type) {
+    case 'url':
+      const destName = toDownloadName(url);
+      return fs.ensureDirAsync(destDir).then(() => downloadDataUrl(desc, path.join(destDir, destName)));
+    case 'repo':
+      desc.name = desc.name || fromRepoUrl(desc.repo);
+      let downloaded;
+      if (fs.existsSync(path.join(cwd, desc.name))) {
+        downloaded = Promise.resolve(desc);
+      } else {
+        downloaded = cloneRepo(desc, cwd);
+      }
+      return downloaded.then(() => fs.copyAsync(`${dir}/${desc.name}/data`, `${destDir}/${desc.name}`));
+    default:
+      console.error('unknown data type:', desc.type);
+      return null;
   }
 }
 
@@ -79,10 +104,10 @@ function spawn(cmd, args, opts) {
     const p = spawn(cmd, args, _.merge({stdio: ['ignore', 1, 2]}, opts));
     p.on('close', (code, signal) => {
       if (code === 0) {
-        console.info(cmd, 'ok status code',code, signal);
+        console.info(cmd, 'ok status code', code, signal);
         resolve(code);
       } else {
-        console.error(cmd, 'status code',code, signal);
+        console.error(cmd, 'status code', code, signal);
         reject(`${cmd} failed with status code ${code} ${signal}`);
       }
     });
@@ -262,14 +287,14 @@ function buildWebApp(p, dir) {
       .then(() => npm(dir, 'install'));
     //test all modules
     if (hasAdditional && !argv.skipTests) {
-      act = act.then(() => Promise.all(p.additional.map((pi) => npm(dir, `run test${pi.isHybridType ? ':web':''}:${pi.name}`))));
+      act = act.then(() => Promise.all(p.additional.map((pi) => npm(dir, `run test${pi.isHybridType ? ':web' : ''}:${pi.name}`))));
     }
     act = act
-      .then(() => npm(dir, `run dist${p.isHybridType ? ':web':''}:${p.name}`));
+      .then(() => npm(dir, `run dist${p.isHybridType ? ':web' : ''}:${p.name}`));
   } else {
     act = act
       .then(() => npm(dir + '/' + name, 'install'))
-      .then(() => npm(dir + '/' + name, `run dist${p.isHybridType ? ':web':''}`));
+      .then(() => npm(dir + '/' + name, `run dist${p.isHybridType ? ':web' : ''}`));
   }
   return act
     .then(() => fs.renameAsync(`${dir}/${p.name}/dist/${p.name}.tar.gz`, `./build/${p.label}.tar.gz`))
@@ -284,10 +309,16 @@ function buildServerApp(p, dir) {
   act = act
     .then(() => yo('workspace', {noAdditionals: true}, dir));
 
+  if (!argv.skipTests) {
+    act = act
+      .then(() => console.log(chalk.yellow('create test environment')))
+      .then(() => spawn('pip', 'install -r requirements.txt'))
+      .then(() => spawn('pip', 'install -r requirements_dev.txt'));
+  }
+
   act = act
-    .then(() => console.log(chalk.yellow('create test environment')))
-    .then(() => npm(dir + '/' + name, `run build${p.isHybridType ? ':python':''}`))
-    .then(() => Promise.all(p.additional.map((pi) => npm(dir + '/' + pi.name, `run build${pi.isHybridType ? ':python':''}`))));
+    .then(() => npm(dir + '/' + name, `run build${p.isHybridType ? ':python' : ''}`))
+    .then(() => Promise.all(p.additional.map((pi) => npm(dir + '/' + pi.name, `run build${pi.isHybridType ? ':python' : ''}`))));
 
   //copy all together
   act = act
@@ -296,7 +327,7 @@ function buildServerApp(p, dir) {
     .then(() => Promise.all(p.additional.map((pi) => fs.copyAsync(`${dir}/${pi.name}/build/source`, `${dir}/build/source/`))));
 
   //copy data packages
-  act = act.then(() => Promise.all(p.data.map((d) => downloadDataFile(d, `${dir}/build/source/_data/${toDownloadName(d)}`))));
+  act = act.then(() => Promise.all(p.data.map((d) => downloadDataFile(d, `${dir}/build/source/_data`, dir))));
   //let act = Promise.resolve([]);
 
   //copy main deploy thing and create a docker out of it
@@ -393,7 +424,6 @@ if (require.main === module) {
   const productName = pkg.name.replace('_product', '');
 
 
-
   fs.emptyDirAsync('build')
     .then(dockerRemoveImages.bind(this, productName))
     // move my own .yo-rc.json to avoid a conflict
@@ -438,7 +468,7 @@ if (require.main === module) {
         process.exit(1);
       }
     }).catch((error) => {
-      console.error('ERROR extra building ', error);
-      process.exit(1);
-    });
+    console.error('ERROR extra building ', error);
+    process.exit(1);
+  });
 }
