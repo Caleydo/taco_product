@@ -328,22 +328,12 @@ function buildCompose(descs, composePartials) {
     .then(() => dockerCompose);
 }
 
-function pushImages(dockerCompose) {
+function pushImages(images) {
   const dockerRepository = argv.pushTo;
   if (!dockerRepository) {
     return null;
   }
   console.log('push docker images');
-  const services = dockerCompose.services;
-
-  //collect all images
-  const images = [];
-  Object.keys(services).map((s) => {
-    const service = services[s];
-    if (service.image) {
-      images.push(service.image);
-    }
-  });
 
   const tags = [];
   if (!argv.noDefaultTags) {
@@ -410,7 +400,7 @@ if (require.main === module) {
       }
     })
     .then((composeFiles) => buildCompose(descs, composeFiles.filter((d) => !!d)))
-    .then(pushImages.bind(this))
+    .then(() => pushImages.bind(this, descs.filter((d) => !d.error).map((d) => d.image)))
     .then(() => fs.renameAsync('.yo-rc_tmp.json', '.yo-rc.json'))
     .then(() => {
       console.log(chalk.bold('summary: '));
