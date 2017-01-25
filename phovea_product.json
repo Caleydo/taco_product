@@ -1,12 +1,4 @@
-[
-  {
-    "type": "web",
-    "label": "taco",
-    "repo": "Caleydo/taco",
-    "branch": "master",
-    "additional": []
-  },
-  {
+[ {
     "type": "api",
     "label": "taco_server",
     "repo": "phovea/phovea_server",
@@ -22,6 +14,11 @@
         "repo": "phovea/phovea_data_hdf",
         "branch": "develop"
       }
+    ],
+    "data": [
+      "TCGA_GBM_2013_09_23.h5",
+      "TCGA_GBM_2014_01_15.h5",
+      "TCGA_GBM_2014_04_16.h5"
     ]
   }
 ]

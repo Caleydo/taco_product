@@ -41,6 +41,30 @@ function fromRepoUrl(url) {
   return url.slice(url.lastIndexOf('/') + 1);
 }
 
+function downloadDataFile(url, dest) {
+  if (!url.startsWith('http')) {
+    url = `https://s3.eu-central-1.amazonaws.com/phovea-data-packages/${url}`;
+  }
+  const http = require(url.startsWith('https') ? 'https': 'http');
+  const dir = path.dirname(dest);
+
+  console.log(chalk.blue('download file', url));
+  return fs.ensureDirAsync(dir).then(() => new Promise((resolve, reject) => {
+    const file = fs.createWriteStream(dest);
+    const request = http.get(url, (response) => {
+      response.pipe(file);
+      file.on('finish', () => {
+        file.close(resolve);
+      });
+    }).on('error', reject);
+  }));
+}
+
+function toDownloadName(url) {
+  if (!url.startsWith('http')) {
+    return url;
+  }
+}
 
 /**
  * spawns a child process
@@ -271,6 +295,8 @@ function buildServerApp(p, dir) {
     .then(() => fs.copyAsync(`${dir}/${name}/build/source`, `${dir}/build/source/`))
     .then(() => Promise.all(p.additional.map((pi) => fs.copyAsync(`${dir}/${pi.name}/build/source`, `${dir}/build/source/`))));
 
+  //copy data packages
+  act = act.then(() => Promise.all(p.data.map((d) => downloadDataFile(d, `${dir}/build/source/_data/${toDownloadName(d)}`))));
   //let act = Promise.resolve([]);
 
   //copy main deploy thing and create a docker out of it
@@ -375,6 +401,7 @@ if (require.main === module) {
     .then(() => {
       const buildOne = (d, i) => {
         d.additional = d.additional || []; //default values
+        d.data = d.data || [];
         d.name = d.name || fromRepoUrl(d.repo);
         d.label = d.label || d.name;
         if (singleService) {
@@ -400,7 +427,7 @@ if (require.main === module) {
       }
     })
     .then((composeFiles) => buildCompose(descs, composeFiles.filter((d) => !!d)))
-    .then(() => pushImages.bind(this, descs.filter((d) => !d.error).map((d) => d.image)))
+    .then(() => pushImages(descs.filter((d) => !d.error).map((d) => d.image)))
     .then(() => fs.renameAsync('.yo-rc_tmp.json', '.yo-rc.json'))
     .then(() => {
       console.log(chalk.bold('summary: '));
