@@ -26,7 +26,7 @@
     "iojs": ">= 3"
   },
   "scripts": {
-    "build": "node build.js --quiet",
+    "build": "node build.js --skipTests",
     "predist": "npm run build",
     "dist": "mkdirp dist && cd build && tar cvzf ../dist/taco_product.tar.gz *"
   },
