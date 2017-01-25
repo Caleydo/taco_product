@@ -1,4 +1,12 @@
-[ {
+[
+  {
+    "type": "web",
+    "label": "taco",
+    "repo": "Caleydo/taco",
+    "branch": "master",
+    "additional": []
+  },
+  {
     "type": "api",
     "label": "taco_server",
     "repo": "phovea/phovea_server",
