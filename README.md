@@ -1,12 +1,9 @@
 taco_product [![Phovea][phovea-image]][phovea-url] [![NPM version][npm-image]][npm-url] [![Build Status][travis-image]][travis-url] [![Dependency Status][daviddm-image]][daviddm-url]
 =====================
 
-
 This is repository builds TACO, which is composed of the [taco_server](https://github.com/Caleydo/taco_server) and the [taco client](https://github.com/Caleydo/taco).
 
-A simple way to install taco is using the [taco_product](https://github.com/Caleydo/taco_product). 
-
-
+A simple way to install taco is using the [taco_product](https://github.com/Caleydo/taco_product).
 
 Installation
 ------------
