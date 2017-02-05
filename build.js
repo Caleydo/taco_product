@@ -312,8 +312,8 @@ function buildServerApp(p, dir) {
   if (!argv.skipTests) {
     act = act
       .then(() => console.log(chalk.yellow('create test environment')))
-      .then(() => spawn('pip', 'install -r requirements.txt'))
-      .then(() => spawn('pip', 'install -r requirements_dev.txt'));
+      .then(() => spawn('pip', 'install -r requirements.txt', {cwd: dir}))
+      .then(() => spawn('pip', 'install -r requirements_dev.txt', {cwd: dir}));
   }
 
   act = act
