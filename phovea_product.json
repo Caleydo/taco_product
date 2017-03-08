@@ -26,6 +26,22 @@
     "data": [
       {
         "type": "url",
+        "url": "TCGA_GBM_2013_02_22.h5"
+      },
+      {
+        "type": "url",
+        "url": "TCGA_GBM_2013_03_26.h5"
+      },
+      {
+        "type": "url",
+        "url": "TCGA_GBM_2013_04_21.h5"
+      },
+      {
+        "type": "url",
+        "url": "TCGA_GBM_2013_05_23.h5"
+      },
+      {
+        "type": "url",
         "url": "TCGA_GBM_2013_09_23.h5"
       },
       {
@@ -35,7 +51,7 @@
       {
         "type": "url",
         "url": "TCGA_GBM_2014_04_16.h5"
-      },
+      }
       {
         "type": "repo",
         "repo": "Caleydo/taco_server"
