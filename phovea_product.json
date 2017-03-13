@@ -51,7 +51,7 @@
       {
         "type": "url",
         "url": "TCGA_GBM_2014_04_16.h5"
-      }
+      },
       {
         "type": "repo",
         "repo": "Caleydo/taco_server"
