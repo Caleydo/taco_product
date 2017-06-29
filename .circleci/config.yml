@@ -1,0 +1,91 @@
+version: 2
+jobs:
+  build:
+    working_directory: ~/phovea
+    docker:
+      - image: caleydo/phovea_circle_python:1.0
+      - image: docker:17.05.0-ce-git
+    steps:
+      - checkout
+      - setup_remote_docker
+      - restore_cache:
+          key: dependency-cache-{{ checksum "package.json" }}
+      - run:
+          name: install-npm-wee
+          command: npm install
+      - save_cache:
+          key: dependency-cache-{{ checksum "package.json" }}
+          paths:
+            - ./node_modules
+      - restore_cache:
+          key: awscli-1.11.113
+      - run:
+          name: install-aws-cli
+          command: |
+            virtualenv ~/venv
+            . ~/venv/bin/activate
+            pip install awscli==1.11.113
+      - save_cache:
+          key: awscli-1.11.113
+          paths:
+          - ~/venv
+      - run:
+          name: login ecr and docker hub
+          command: |
+            . ~/venv/bin/activate
+            cat > ~/.dockercfg << EOF
+            {
+              "https://index.docker.io/v1/": {
+                "auth": "$DOCKER_AUTH"
+              }
+            }
+            EOF
+            export AWS_DEFAULT_REGION=eu-central-1
+            login="$(aws ecr get-login --no-include-email)"
+            ${login}
+      - deploy:
+          name: build and deploy
+          command: |
+            . ~/venv/bin/activate
+            case $CIRCLE_BRANCH in
+            master)
+              awsTag="latest"
+              ;;
+            *)
+              awsTag="${CIRCLE_BRANCH}"
+              ;;
+            esac
+            echo "using tag: --${awsTag}--"
+            node build.js --skipSaveImage --noDefaultTags --pushExtra=${awsTag} --pushTo=922145058410.dkr.ecr.eu-central-1.amazonaws.com/caleydo
+      - store_artifacts:
+          path: build
+          prefix: build
+      - deploy:
+          name: cleanup untagged aws repo
+          command: |
+            . ~/venv/bin/activate
+            export AWS_DEFAULT_REGION=eu-central-1
+            baseName=${CIRCLE_PROJECT_REPONAME%_product}
+            # list repos filter to just the one of this product and delete untagged ones
+            aws ecr describe-repositories --output text | cut -f5 | grep "caleydo/${baseName}" | while read line; do aws ecr list-images --repository-name $line --filter tagStatus=UNTAGGED --query 'imageIds[*]' --output text | while read imageId; do aws ecr batch-delete-image --output text --repository-name $line --image-ids imageDigest=$imageId; done; done
+      - deploy:
+          name: restart aws #assumes the task definition is called <reponame>-<branch>
+          command: |
+            . ~/venv/bin/activate
+            export AWS_DEFAULT_REGION=eu-central-1
+            # cleanup name by removing the _product suffix
+            baseName=${CIRCLE_PROJECT_REPONAME%_product}
+            awsFamily="${baseName}-${CIRCLE_BRANCH}"
+            echo "awsFamily --${awsFamily}--"
+            tasksExists=$(aws --output text ecs list-task-definitions --family-prefix ${awsFamily})
+            echo "existsTaskDefinition? --${tasksExists}--"
+            if [ ! -z "$tasksExists" ]; then
+              isTaskRunning=$(aws --output text ecs list-tasks --cluster caleydo --family ${awsFamily})
+              echo "isTaskRunning? --${isTaskRunning}--"
+              if [ ! -z "$isTaskRunning" ]; then
+                taskId=$(echo "${isTaskRunning}" | cut -f2)
+                echo "taskId--${taskId}--"
+                aws --output text ecs stop-task --cluster caleydo --task ${taskId}
+              fi
+              aws --output text ecs run-task --cluster caleydo --task-definition ${awsFamily} --started-by CircleCIAutoUpdate
+            fi
