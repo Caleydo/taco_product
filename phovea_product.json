@@ -10,7 +10,7 @@
     "type": "api",
     "label": "taco_server",
     "repo": "phovea/phovea_server",
-    "branch": "thinkh/fix-utf8-encoded-csv-handling",
+    "branch": "develop",
     "additional": [
       {
         "name": "taco_server",
