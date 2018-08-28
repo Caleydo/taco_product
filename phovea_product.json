@@ -10,7 +10,7 @@
     "type": "api",
     "label": "taco_server",
     "repo": "phovea/phovea_server",
-    "branch": "develop",
+    "branch": "v2.0.0",
     "additional": [
       {
         "name": "taco_server",
@@ -20,7 +20,7 @@
       {
         "name": "phovea_data_hdf",
         "repo": "phovea/phovea_data_hdf",
-        "branch": "develop"
+        "branch": "v2.0.0"
       }
     ],
     "data": [
