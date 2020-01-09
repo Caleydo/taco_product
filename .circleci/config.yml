@@ -3,8 +3,7 @@ jobs:
   build:
     working_directory: ~/phovea
     docker:
-      - image: circleci/python:3.7-buster-node-browsers # for node version see Dockerfile on https://hub.docker.com/r/circleci/python
-      - image: docker:17.05.0-ce-git
+      - image: caleydo/phovea_circleci_python:v3.0
     steps:
       - checkout
       - setup_remote_docker
