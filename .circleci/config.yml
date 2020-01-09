@@ -31,15 +31,15 @@ jobs:
           name: Show installed npm dependencies
           command: npm list --depth=1 || true
       - restore_cache:
-          key: awscli-1.16.313
+          key: awscli-1.11.113
       - run:
           name: Install AWS CLI
           command: |
             virtualenv ~/venv
             . ~/venv/bin/activate
-            pip install awscli==1.16.313
+            pip install awscli==1.11.113
       - save_cache:
-          key: awscli-1.16.313
+          key: awscli-1.11.113
           paths:
           - ~/venv
       - run:
