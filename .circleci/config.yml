@@ -59,7 +59,7 @@ jobs:
             node build.js --skipSaveImage --noDefaultTags --pushExtra=${awsTag} --pushTo=922145058410.dkr.ecr.eu-central-1.amazonaws.com/caleydo
       - store_artifacts:
           path: build
-          prefix: build
+          destination: build
       - deploy:
           name: cleanup untagged aws repo
           command: |
