@@ -30,15 +30,15 @@ jobs:
           name: Show installed npm dependencies
           command: npm list --depth=1 || true
       - restore_cache:
-          key: awscli-1.11.113
+          key: awscli-1.16.312
       - run:
           name: Install AWS CLI
           command: |
             virtualenv ~/venv
             . ~/venv/bin/activate
-            pip install awscli==1.11.113
+            pip install awscli==1.16.312
       - save_cache:
-          key: awscli-1.11.113
+          key: awscli-1.16.312
           paths:
           - ~/venv
       - run:
@@ -79,7 +79,7 @@ jobs:
             export AWS_DEFAULT_REGION=eu-central-1
             baseName=${CIRCLE_PROJECT_REPONAME%_product}
             # list repos filter to just the one of this product and delete untagged ones
-            aws ecr describe-repositories --output text | cut -f5 | grep "caleydo/${baseName}" | while read line; do aws ecr list-images --repository-name $line --filter tagStatus=UNTAGGED --query 'imageIds[*]' --output text | while read imageId; do aws ecr batch-delete-image --output text --repository-name $line --image-ids imageDigest=$imageId; done; done
+            aws ecr describe-repositories --output text | cut -f6 | grep "caleydo/${baseName}" | while read line; do aws ecr list-images --repository-name $line --filter tagStatus=UNTAGGED --query 'imageIds[*]' --output text | while read imageId; do aws ecr batch-delete-image --output text --repository-name $line --image-ids imageDigest=$imageId; done; done
       - deploy:
           name: Restart AWS task # assumes the task definition is called <reponame>-<branch>
           command: |
