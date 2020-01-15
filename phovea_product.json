@@ -11,13 +11,7 @@
     "label": "taco_server",
     "repo": "phovea/phovea_server",
     "branch": "develop",
-    "additional": [
-      {
-        "name": "phovea_data_hdf",
-        "repo": "phovea/phovea_data_hdf",
-        "branch": "develop"
-      }
-    ],
+    "additional": [],
     "data": [
       {
         "type": "url",
