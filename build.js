@@ -798,7 +798,9 @@ if (require.main === module) {
     }
 
     const needsWorskpace = (isWeb && hasAdditional) || isServer;
-    steps[`prepare:${suffix}`] = needsWorskpace ? () => catchProductBuild(p, createWorkspace(p)) : null;
+    if(needsWorskpace) {
+      steps[`prepare:${suffix}`] = () => catchProductBuild(p, createWorkspace(p));
+    }
 
     if (isWeb) {
       steps[`install:${suffix}`] = () => catchProductBuild(p, installWebDependencies(p));
@@ -812,7 +814,9 @@ if (require.main === module) {
     steps[`image:${suffix}`] = () => catchProductBuild(p, buildDockerImage(p));
     steps[`save:${suffix}`] = () => catchProductBuild(p, dockerSave(p.image, `build/${p.label}_image.tar.gz`));
 
-    subSteps.push(`prepare:${suffix}`);
+    if(needsWorskpace) {
+      subSteps.push(`prepare:${suffix}`);
+    }
     subSteps.push(`install:${suffix}`);
     if (!argv.skipTests) {
       subSteps.push(`test:${suffix}`);
