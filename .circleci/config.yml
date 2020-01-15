@@ -64,7 +64,7 @@ jobs:
               awsTag="latest"
               ;;
             *)
-              awsTag="${CIRCLE_BRANCH}"
+              awsTag="${CIRCLE_BRANCH//\//_}" # replace `/` with `_` in branch name
               ;;
             esac
             echo "using tag: --${awsTag}--"
@@ -87,7 +87,7 @@ jobs:
             export AWS_DEFAULT_REGION=eu-central-1
             # cleanup name by removing the _product suffix
             baseName=${CIRCLE_PROJECT_REPONAME%_product}
-            awsFamily="${baseName}-${CIRCLE_BRANCH}"
+            awsFamily="${baseName}-${CIRCLE_BRANCH//\//_}" # replace `/` with `_` in branch name
             echo "awsFamily --${awsFamily}--"
             tasksExists=$(aws --output text ecs list-task-definitions --family-prefix ${awsFamily})
             echo "existsTaskDefinition? --${tasksExists}--"
