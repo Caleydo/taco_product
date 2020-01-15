@@ -10,7 +10,7 @@
     "type": "api",
     "label": "taco_server",
     "repo": "phovea/phovea_server",
-    "branch": "stoiber/update_debian_url_in_Dockerfile",
+    "branch": "develop",
     "additional": [
       {
         "name": "taco_server",
