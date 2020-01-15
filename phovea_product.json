@@ -13,11 +13,6 @@
     "branch": "develop",
     "additional": [
       {
-        "name": "taco_server",
-        "repo": "Caleydo/taco_server",
-        "branch": "develop"
-      },
-      {
         "name": "phovea_data_hdf",
         "repo": "phovea/phovea_data_hdf",
         "branch": "develop"
