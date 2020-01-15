@@ -10,8 +10,19 @@
     "type": "api",
     "label": "taco_server",
     "repo": "phovea/phovea_server",
-    "branch": "develop",
-    "additional": [],
+    "branch": "stoiber/update_debian_url_in_Dockerfile",
+    "additional": [
+      {
+        "name": "taco_server",
+        "repo": "Caleydo/taco_server",
+        "branch": "develop"
+      },
+      {
+        "name": "phovea_data_hdf",
+        "repo": "phovea/phovea_data_hdf",
+        "branch": "develop"
+      }
+    ],
     "data": [
       {
         "type": "url",
