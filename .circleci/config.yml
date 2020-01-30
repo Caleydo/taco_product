@@ -3,34 +3,46 @@ jobs:
   build:
     working_directory: ~/phovea
     docker:
-      - image: caleydo/phovea_circleci_python:v1.0
-      - image: docker:17.05.0-ce-git
+      - image: circleci/python:3.7-buster-node-browsers # for node version see Dockerfile on https://hub.docker.com/r/circleci/python
     steps:
       - checkout
       - setup_remote_docker
+      - run:
+          name: Show Node.js and npm version
+          command: |
+            node -v
+            npm -v
+      - run:
+          name: Show Python and pip version
+          command: |
+            python --version
+            pip --version
       - restore_cache:
           key: dependency-cache-{{ checksum "package.json" }}
       - run:
-          name: install-npm-wee
+          name: Install npm dependencies
           command: npm install
       - save_cache:
           key: dependency-cache-{{ checksum "package.json" }}
           paths:
             - ./node_modules
-      - restore_cache:
-          key: awscli-1.11.113
       - run:
-          name: install-aws-cli
+          name: Show installed npm dependencies
+          command: npm list --depth=1 || true
+      - restore_cache:
+          key: awscli-1.16.312
+      - run:
+          name: Install AWS CLI
           command: |
             virtualenv ~/venv
             . ~/venv/bin/activate
-            pip install awscli==1.11.113
+            pip install awscli==1.16.312
       - save_cache:
-          key: awscli-1.11.113
+          key: awscli-1.16.312
           paths:
           - ~/venv
       - run:
-          name: login ecr and docker hub
+          name: Login AWS ECR and DockerHub
           command: |
             . ~/venv/bin/activate
             cat > ~/.dockercfg << EOF
@@ -44,7 +56,7 @@ jobs:
             login="$(aws ecr get-login --no-include-email)"
             ${login}
       - deploy:
-          name: build and deploy
+          name: Build and deploy
           command: |
             . ~/venv/bin/activate
             case $CIRCLE_BRANCH in
@@ -52,30 +64,30 @@ jobs:
               awsTag="latest"
               ;;
             *)
-              awsTag="${CIRCLE_BRANCH}"
+              awsTag="${CIRCLE_BRANCH//\//_}" # replace `/` with `_` in branch name
               ;;
             esac
             echo "using tag: --${awsTag}--"
-            node build.js --skipSaveImage --noDefaultTags --pushExtra=${awsTag} --pushTo=922145058410.dkr.ecr.eu-central-1.amazonaws.com/caleydo
+            node build.js --serial --skipSaveImage --noDefaultTags --pushExtra=${awsTag} --pushTo=922145058410.dkr.ecr.eu-central-1.amazonaws.com/caleydo
       - store_artifacts:
           path: build
-          prefix: build
+          destination: build
       - deploy:
-          name: cleanup untagged aws repo
+          name: Cleanup untagged AWS repositories
           command: |
             . ~/venv/bin/activate
             export AWS_DEFAULT_REGION=eu-central-1
             baseName=${CIRCLE_PROJECT_REPONAME%_product}
             # list repos filter to just the one of this product and delete untagged ones
-            aws ecr describe-repositories --output text | cut -f5 | grep "caleydo/${baseName}" | while read line; do aws ecr list-images --repository-name $line --filter tagStatus=UNTAGGED --query 'imageIds[*]' --output text | while read imageId; do aws ecr batch-delete-image --output text --repository-name $line --image-ids imageDigest=$imageId; done; done
+            aws ecr describe-repositories --output text | cut -f6 | grep "caleydo/${baseName}" | while read line; do aws ecr list-images --repository-name $line --filter tagStatus=UNTAGGED --query 'imageIds[*]' --output text | while read imageId; do aws ecr batch-delete-image --output text --repository-name $line --image-ids imageDigest=$imageId; done; done
       - deploy:
-          name: restart aws #assumes the task definition is called <reponame>-<branch>
+          name: Restart AWS task # assumes the task definition is called <reponame>-<branch>
           command: |
             . ~/venv/bin/activate
             export AWS_DEFAULT_REGION=eu-central-1
             # cleanup name by removing the _product suffix
             baseName=${CIRCLE_PROJECT_REPONAME%_product}
-            awsFamily="${baseName}-${CIRCLE_BRANCH}"
+            awsFamily="${baseName}-${CIRCLE_BRANCH//\//_}" # replace `/` with `_` in branch name
             echo "awsFamily --${awsFamily}--"
             tasksExists=$(aws --output text ecs list-task-definitions --family-prefix ${awsFamily})
             echo "existsTaskDefinition? --${tasksExists}--"
@@ -89,3 +101,29 @@ jobs:
               fi
               aws --output text ecs run-task --cluster caleydo --task-definition ${awsFamily} --started-by CircleCIAutoUpdate
             fi
+workflows:
+  version: 2
+  build-nightly:
+    triggers:
+      - schedule:
+          cron: "15 1 * * 1-5" # "At 01:15 on every day-of-week from Monday through Friday.”, see: https://crontab.guru/#15_1_*_*_1-5
+          filters:
+            branches:
+              only:
+                - develop
+    jobs:
+      - build
+  build-branch:
+    jobs:
+      - build:
+          filters:
+            tags:
+              ignore: /^v.*/
+  build-tag:
+    jobs:
+      - build:
+          filters:
+            branches:
+              ignore: /.*/
+            tags:
+              only: /^v.*/
