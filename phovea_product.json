@@ -3,7 +3,7 @@
     "type": "web",
     "label": "taco",
     "repo": "Caleydo/taco",
-    "branch": "master",
+    "branch": "v2.1.0",
     "additional": []
   },
   {
@@ -15,7 +15,7 @@
       {
         "name": "taco_server",
         "repo": "Caleydo/taco_server",
-        "branch": "master"
+        "branch": "v2.1.0"
       },
       {
         "name": "phovea_data_hdf",
