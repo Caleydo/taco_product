@@ -7,7 +7,9 @@ const path = require('path');
 const fs = Promise.promisifyAll(require('fs-extra'));
 const chalk = require('chalk');
 const pkg = require('./package.json');
+// see show help
 const argv = require('yargs-parser')(process.argv.slice(2));
+
 const quiet = argv.quiet !== undefined;
 
 const now = new Date();
@@ -15,30 +17,114 @@ const prefix = (n) => n < 10 ? ('0' + n) : n.toString();
 const buildId = `${now.getUTCFullYear()}${prefix(now.getUTCMonth())}${prefix(now.getUTCDate())}-${prefix(now.getUTCHours())}${prefix(now.getUTCMinutes())}${prefix(now.getUTCSeconds())}`;
 pkg.version = pkg.version.replace('SNAPSHOT', buildId);
 const env = Object.assign({}, process.env);
+const productName = pkg.name.replace('_product', '');
 
-function toRepoUrl(url) {
-  if (argv.useSSH) {
-    return `git@github.com:${url}.git`
-  }
-  return url.startsWith('https://github.com/') ? url : `https://github.com/${url}.git`;
+function showHelp(steps, chain) {
+  console.info(`node build.js <options> -- step1 step2
+possible options:
+ * --quiet         ... reduce log messages
+ * --serial        ... build elements sequentially
+ * --skipTests     ... skip tests
+ * --injectVersion ... injects the product version into the package.json of the built component
+ * --useSSH        ... clone via ssh instead of https
+ * --skipCleanUp   ... skip cleaning up old docker images
+ * --skipSaveImage ... skip saving the generated docker images
+ * --pushTo        ... push docker images to the given registry
+ * --noDefaultTags ... don't push generated default tag :<timestamp>
+ * --pushExtra     ... push additional custom tag: e.g., --pushExtra=develop
+ * --forceLabel    ... force to use the label even only a single service exists
+ * --dryRun        ... just compute chain no execution
+ * --help          ... show this help message
+
+arguments: (starting with --!) optional list of steps to execute in the given order (expert mode) by default the default chain is executed
+ `);
+
+  steps = Object.keys(steps);
+  const primary = steps.filter((d) => !d.includes(':')).sort((a, b) => a.localeCompare(b));
+  const secondary = steps.filter((d) => d.includes(':')).sort((a, b) => a.localeCompare(b));
+
+  console.info('possible primary steps:\n ', primary.join('\n  '));
+  console.info('possible secondary steps:\n ', secondary.join('\n  '));
+
+  console.info('default chain:\n', JSON.stringify(chain, null, ' '));
 }
 
+/**
+ * generates a repo url to clone depending on the argv.useSSH option
+ * @param {string} url the repo url either in git@ for https:// form
+ * @returns the clean repo url
+ */
+function toRepoUrl(url) {
+  if (url.startsWith('git@')) {
+    if (argv.useSSH) {
+      return url;
+    }
+    // have an ssh url need an http url
+    const m = url.match(/(https?:\/\/([^/]+)\/|git@(.+):)([\w\d-_/]+)(.git)?/);
+    return `https://${m[3]}/${m[4]}.git`;
+  }
+  if (url.startsWith('http')) {
+    if (!argv.useSSH) {
+      return url;
+    }
+    // have a http url need an ssh url
+    const m = url.match(/(https?:\/\/([^/]+)\/|git@(.+):)([\w\d-_/]+)(.git)?/);
+    return `git@${m[2]}:${m[4]}.git`;
+  }
+  if (!url.includes('/')) {
+    url = `Caleydo/${url}`;
+  }
+  if (argv.useSSH) {
+    return `git@github.com:${url}.git`;
+  }
+  return `https://github.com/${url}.git`;
+}
+
+/**
+ * guesses the credentials environment variable based on the given repository hostname
+ * @param {string} repo
+ */
+function guessUserName(repo) {
+  // extract the host
+  const host = repo.match(/:\/\/([^/]+)/)[1];
+  const hostClean = host.replace(/\./g, '_').toUpperCase();
+  // e.g. GITHUB_COM_CREDENTIALS
+  const envVar = process.env[`${hostClean}_CREDENTIALS`];
+  if (envVar) {
+    return envVar;
+  }
+  return process.env.PHOVEA_GITHUB_CREDENTIALS;
+}
 
 function toRepoUrlWithUser(url) {
   const repo = toRepoUrl(url);
-  const username_and_password = process.env.PHOVEA_GITHUB_CREDENTIALS;
-  if (repo.includes('git@github.com') || !username_and_password) {
+  if (repo.startsWith('git@')) { // ssh
     return repo;
   }
-  return repo.replace('://', `://${username_and_password}@`);
+  const usernameAndPassword = guessUserName(repo);
+  if (!usernameAndPassword) { // ssh or no user given
+    return repo;
+  }
+  return repo.replace('://', `://${usernameAndPassword}@`);
 }
-
 
 function fromRepoUrl(url) {
   if (url.includes('.git')) {
-    return url.match(/\/(.*)\.git/)[0]
+    return url.match(/\/([^/]+)\.git/)[0];
   }
   return url.slice(url.lastIndexOf('/') + 1);
+}
+
+/**
+ * deep merge with array union
+ * @param {*} target
+ * @param {*} source
+ */
+function mergeWith(target, source) {
+  const _ = require('lodash');
+  const mergeArrayUnion = (a, b) => Array.isArray(a) ? _.union(a, b) : undefined;
+  _.mergeWith(target, source, mergeArrayUnion);
+  return target;
 }
 
 function downloadDataUrl(url, dest) {
@@ -49,7 +135,7 @@ function downloadDataUrl(url, dest) {
   console.log(chalk.blue('download file', url));
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(dest);
-    const request = http.get(url, (response) => {
+    http.get(url, (response) => {
       response.pipe(file);
       file.on('finish', () => {
         file.close(resolve);
@@ -72,11 +158,13 @@ function downloadDataFile(desc, destDir, cwd) {
       url: desc
     };
   }
-  switch(desc.type) {
-    case 'url':
-      const destName = toDownloadName(desc.url);
-      return fs.ensureDirAsync(destDir).then(() => downloadDataUrl(desc.url, path.join(destDir, destName)));
-    case 'repo':
+  desc.type = desc.type || (desc.url ? 'url' : (desc.repo ? 'repo' : 'unknown'));
+  switch (desc.type) {
+    case 'url': {
+      desc.name = desc.name || toDownloadName(desc.url);
+      return fs.ensureDirAsync(destDir).then(() => downloadDataUrl(desc.url, `${destDir}/${desc.name}`));
+    }
+    case 'repo': {
       desc.name = desc.name || fromRepoUrl(desc.repo);
       let downloaded;
       if (fs.existsSync(path.join(cwd, desc.name))) {
@@ -85,6 +173,7 @@ function downloadDataFile(desc, destDir, cwd) {
         downloaded = cloneRepo(desc, cwd);
       }
       return downloaded.then(() => fs.copyAsync(`${cwd}/${desc.name}/data`, `${destDir}/${desc.name}`));
+    }
     default:
       console.error('unknown data type:', desc.type);
       return null;
@@ -96,24 +185,35 @@ function downloadDataFile(desc, destDir, cwd) {
  * @param cmd command as array
  * @param args arguments
  * @param opts options
+ * @returns a promise with the result code or a reject with the error string
  */
 function spawn(cmd, args, opts) {
   const spawn = require('child_process').spawn;
   const _ = require('lodash');
   return new Promise((resolve, reject) => {
-    const p = spawn(cmd, typeof args === 'string' ? args.split(' ') : args, _.merge({stdio: ['ignore', 1, 2]}, opts));
+    const p = spawn(cmd, typeof args === 'string' ? args.split(' ') : args, _.merge({stdio: argv.quiet ? ['ignore', 'pipe', 'pipe'] : ['ignore', 1, 2]}, opts));
+    const out = [];
+    if (p.stdout) {
+      p.stdout.on('data', (chunk) => out.push(chunk));
+    }
+    if (p.stderr) {
+      p.stderr.on('data', (chunk) => out.push(chunk));
+    }
     p.on('close', (code, signal) => {
       if (code === 0) {
         console.info(cmd, 'ok status code', code, signal);
         resolve(code);
       } else {
         console.error(cmd, 'status code', code, signal);
-        reject(`${cmd} failed with status code ${code} ${signal}`);
+        if (args.quiet) {
+          // log output what has been captured
+          console.log(out.join('\n'));
+        }
+        reject(new Error(`${cmd} failed with status code ${code} ${signal}`));
       }
     });
   });
 }
-
 
 /**
  * run npm with the given args
@@ -151,23 +251,23 @@ function dockerSave(image, target) {
       p.stderr.on('data', (data) => console.error(chalk.red(data.toString())));
       p2.stderr.on('data', (data) => console.error(chalk.red(data.toString())));
     }
-    p2.on('close', (code) => code == 0 ? resolve() : reject(code));
+    p2.on('close', (code) => code === 0 ? resolve() : reject(code));
   });
 }
 
-function dockerRemoveImages(productName) {
-  console.log(chalk.blue(`docker images | grep ${productName} | awk '{print $1":"$2}') | xargs docker rmi`));
+function dockerRemoveImages() {
+  console.log(chalk.blue(`docker images | grep ${productName} | awk '{print $1":"$2}') | xargs --no-run-if-empty docker rmi`));
   const spawn = require('child_process').spawn;
   const opts = {env};
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const p = spawn('docker', ['images'], opts);
     const p2 = spawn('grep', [productName], opts);
     p.stdout.pipe(p2.stdin);
     const p3 = spawn('awk', ['{print $1":"$2}'], opts);
     p2.stdout.pipe(p3.stdin);
-    const p4 = spawn('xargs', ['docker', 'rmi'], {env, stdio: [p3.stdout, 1, 2]});
+    const p4 = spawn('xargs', ['--no-run-if-empty', 'docker', 'rmi'], {env, stdio: [p3.stdout, 1, 2]});
     p4.on('close', (code) => {
-      if (code == 0) {
+      if (code === 0) {
         resolve();
       } else {
         console.log('invalid error code, but continuing');
@@ -190,17 +290,20 @@ function createQuietTerminalAdapter() {
  * runs yo internally
  * @param generator
  * @param options
- * @param cwd
+ * @param {string} cwd
+ * @param {string[]|string} args
  */
-function yo(generator, options, cwd) {
+function yo(generator, options, cwd, args) {
   const yeoman = require('yeoman-environment');
   // call yo internally
   const yeomanEnv = yeoman.createEnv([], {cwd, env}, quiet ? createQuietTerminalAdapter() : undefined);
-  yeomanEnv.register(require.resolve('generator-phovea/generators/' + generator), 'phovea:' + generator);
+  const _args = Array.isArray(args) ? args.join(' ') : args || '';
   return new Promise((resolve, reject) => {
     try {
       console.log(cwd, chalk.blue('running yo phovea:' + generator));
-      yeomanEnv.run('phovea:' + generator, options, resolve);
+      yeomanEnv.lookup(() => {
+        yeomanEnv.run(`phovea:${generator} ${_args}`, options, resolve);
+      });
     } catch (e) {
       console.error('error', e, e.stack);
       reject(e);
@@ -213,27 +316,25 @@ function cloneRepo(p, cwd) {
   p.name = p.name || fromRepoUrl(p.repo);
   p.repo = p.repo || `phovea/${p.name}`;
   p.branch = p.branch || 'master';
-  console.log(cwd, chalk.blue(`running git clone --depth 1 -b ${p.branch} ${toRepoUrl(p.repo)} ${p.name}`));
-  return spawn('git', ['clone', '--depth', '1', '-b', p.branch, toRepoUrlWithUser(p.repo), p.name], {cwd});
+
+  return yo('clone-repo', {
+    branch: p.branch,
+    extras: '--depth 1',
+    dir: p.name,
+    cwd
+  }, cwd, toRepoUrlWithUser(p.repo)); // pass repo url as argument
 }
 
 function resolvePluginType(p, dir) {
+  if (!fs.existsSync(`${dir}/${p.name}/.yo-rc.json`)) {
+    p.pluginType = 'lib';
+    p.isHybridType = false;
+    return;
+  }
   return fs.readJSONAsync(`${dir}/${p.name}/.yo-rc.json`).then((json) => {
     p.pluginType = json['generator-phovea'].type;
     p.isHybridType = p.pluginType.includes('-');
   });
-}
-
-function preBuild(p, dir) {
-  const hasAdditional = p.additional.length > 0;
-  let act = fs.emptyDirAsync(dir)
-    .then(() => cloneRepo(p, dir))
-    .then(() => resolvePluginType(p, dir));
-  if (hasAdditional) {
-    act = act
-      .then(() => Promise.all(p.additional.map((pi) => cloneRepo(pi, dir).then(resolvePluginType.bind(this, pi, dir)))));
-  }
-  return act;
 }
 
 function loadComposeFile(dir, p) {
@@ -241,16 +342,15 @@ function loadComposeFile(dir, p) {
   if (fs.existsSync(composeFile)) {
     const yaml = require('yamljs');
     return fs.readFileAsync(composeFile).then((content) => yaml.parse(content.toString()));
-  } else {
-    return Promise.resolve({});
   }
+  return Promise.resolve({});
 }
 
 function patchComposeFile(p, composeTemplate) {
   const service = {};
   if (composeTemplate && composeTemplate.services) {
     const firstService = Object.keys(composeTemplate.services)[0];
-    //copy data from first service
+    // copy data from first service
     Object.assign(service, composeTemplate.services[firstService]);
     delete service.build;
   }
@@ -266,104 +366,79 @@ function patchComposeFile(p, composeTemplate) {
   return r;
 }
 
-
-function postBuild(p, dir, buildInSubDir) {
-  return Promise.resolve(null)
-    .then(() => docker(`${dir}${buildInSubDir ? '/' + p.name : ''}`, `build -t ${p.image} -f deploy/Dockerfile .`))
-    .then(() => argv.skipSaveImage ? null : dockerSave(p.image, `build/${p.label}_image.tar.gz`))
-    .then(() => Promise.all([loadComposeFile(dir, p).then(patchComposeFile.bind(null, p))].concat(p.additional.map((pi) => loadComposeFile(dir, pi)))))
-    .then(mergeCompose);
+function patchDockerfile(p, dockerFile) {
+  if (!p.baseImage) {
+    return null;
+  }
+  return fs.readFileAsync(dockerFile).then((content) => {
+    content = content.toString();
+    // patch the Dockerfile by replacing the FROM statement
+    const r = /^\s*FROM (.+)\s*$/igm;
+    const fromImage = r.exec(content)[1];
+    console.log(`patching ${dockerFile} change from ${fromImage} -> ${p.baseImage}`);
+    content = content.replace(r, `FROM ${p.baseImage}`);
+    return fs.writeFileAsync(dockerFile, content);
+  });
 }
 
-function buildWebApp(p, dir) {
-  console.log(dir, chalk.blue('building web application:'), p.label);
-  const name = p.name;
-  const hasAdditional = p.additional.length > 0;
-  let act = preBuild(p, dir);
-  //let act = Promise.resolve(null);
-  if (hasAdditional) {
-    act = act
-      .then(() => yo('workspace', {noAdditionals: true}, dir))
-      .then(() => npm(dir, 'install'));
-    //test all modules
-    if (hasAdditional && !argv.skipTests) {
-      act = act.then(() => Promise.all(p.additional.map((pi) => npm(dir, `run test${pi.isHybridType ? ':web' : ''}:${pi.name}`))));
+function patchWorkspace(p) {
+  // prepend docker_script in the workspace
+  if (fs.existsSync('./docker_script.sh')) {
+    console.log('patch workspace and prepend docker_script.sh');
+    let content = fs.readFileSync('./docker_script.sh').toString();
+    if (fs.existsSync(p.tmpDir + '/docker_script.sh')) {
+      content += '\n' + fs.readFileSync(p.tmpDir + '/docker_script.sh').toString();
     }
-    act = act
-      .then(() => npm(dir, `run dist${p.isHybridType ? ':web' : ''}:${p.name}`));
-  } else {
-    act = act
-      .then(() => npm(dir + '/' + name, 'install'))
-      .then(() => npm(dir + '/' + name, `run dist${p.isHybridType ? ':web' : ''}`));
-  }
-  return act
-    .then(() => fs.renameAsync(`${dir}/${p.name}/dist/${p.name}.tar.gz`, `./build/${p.label}.tar.gz`))
-    .then(postBuild.bind(null, p, dir, true));
-}
-
-function buildServerApp(p, dir) {
-  console.log(dir, chalk.blue('building service package:'), p.label);
-  const name = p.name;
-
-  let act = preBuild(p, dir);
-  act = act
-    .then(() => yo('workspace', {noAdditionals: true}, dir));
-
-  if (!argv.skipTests) {
-    act = act
-      .then(() => console.log(chalk.yellow('create test environment')))
-      .then(() => spawn('pip', 'install --no-cache-dir -r requirements.txt', {cwd: dir}))
-      .then(() => spawn('pip', 'install --no-cache-dir -r requirements_dev.txt', {cwd: dir}));
+    fs.writeFileSync(p.tmpDir + '/docker_script.sh', content);
   }
 
-  act = act
-    .then(() => npm(dir + '/' + name, `run build${p.isHybridType ? ':python' : ''}`))
-    .then(() => Promise.all(p.additional.map((pi) => npm(dir + '/' + pi.name, `run build${pi.isHybridType ? ':python' : ''}`))));
+  if (argv.injectVersion) {
+    const pkgfile = `${p.tmpDir}/${p.name}/package.json`;
+    if (fs.existsSync(pkgfile)) {
+      const ppkg = require(pkgfile);
+      ppkg.version = pkg.version;
+      fs.writeJSONSync(pkgfile, ppkg);
+    } else {
+      console.warn('cannot inject version, main package.json not found');
+    }
+  }
 
-  //copy all together
-  act = act
-    .then(() => fs.ensureDirAsync(`${dir}/build/source`))
-    .then(() => fs.copyAsync(`${dir}/${name}/build/source`, `${dir}/build/source/`))
-    .then(() => Promise.all(p.additional.map((pi) => fs.copyAsync(`${dir}/${pi.name}/build/source`, `${dir}/build/source/`))));
+  // inject extra phovea.js
+  if (fs.existsSync('./phovea.js')) {
+    console.log('patch workspace and add workspace phovea.js');
+    let registry = fs.readFileSync(p.tmpDir + '/phovea_registry.js').toString();
+    fs.copyFileSync('./phovea.js', p.tmpDir + '/phovea.js');
 
-  //copy data packages
-  act = act.then(() => Promise.all(p.data.map((d) => downloadDataFile(d, `${dir}/build/source/_data`, dir))));
-  //let act = Promise.resolve([]);
-
-  //copy main deploy thing and create a docker out of it
-  return act
-    .then(() => fs.ensureDirAsync(`${dir}/deploy`))
-    .then(() => fs.copyAsync(`${dir}/${name}/deploy`, `${dir}/deploy/`))
-    .then(postBuild.bind(null, p, dir, false));
-}
-
-function buildImpl(d, dir) {
-  switch (d.type) {
-    case 'static':
-    case 'web':
-      return buildWebApp(d, dir);
-    case 'api':
-      d.name = d.name || 'phovea_server';
-      return buildServerApp(d, dir);
-    case 'service':
-      return buildServerApp(d, dir);
-    default:
-      console.error(chalk.red('unknown product type: ' + d.type));
-      return Promise.resolve(null);
+    registry += `\n\n
+    import {register} from 'phovea_core/src/plugin';
+    register('__product',require('./phovea.js'));
+    `;
+    fs.writeFileSync(p.tmpDir + '/phovea_registry.js', registry);
   }
 }
 
 function mergeCompose(composePartials) {
   let dockerCompose = {};
-  const _ = require('lodash');
-  const mergeArrayUnion = (a, b) => Array.isArray(a) ? _.union(a, b) : undefined;
-  composePartials.forEach((c) => _.mergeWith(dockerCompose, c, mergeArrayUnion));
+  composePartials.forEach((c) => mergeWith(dockerCompose, c));
   return dockerCompose;
 }
 
-function buildCompose(descs, composePartials) {
+function buildComposePartials(descs) {
+  const validDescs = descs.filter((d) => !d.error);
+
+  // merge a big compose file including all
+  return Promise.all(validDescs.map((p) => {
+    return Promise.all([loadComposeFile(p.tmpDir, p).then(patchComposeFile.bind(null, p))].concat(p.additional.map((pi) => loadComposeFile(p.tmpDir, pi))))
+      .then((partials) => {
+        p.composePartial = mergeCompose(partials);
+      });
+  }));
+}
+
+function buildCompose(descs, dockerComposePatch) {
   console.log('create docker-compose.yml');
-  const dockerCompose = mergeCompose(composePartials);
+
+  const dockerCompose = mergeCompose(descs.map((d) => d.composePartial).filter(Boolean));
   const services = dockerCompose.services;
   // link the api server types to the web types and server to the api
   const web = descs.filter((d) => d.type === 'web').map((d) => d.label);
@@ -380,6 +455,23 @@ function buildCompose(descs, composePartials) {
       services[w].links.push(`${s.label}:${s.name}`);
     });
   });
+
+  if (services._host) {
+    // inline _host to apis
+    const host = services._host;
+    delete services._host;
+    api.forEach((s) => {
+      services[s] = mergeCompose([host, services[s]]);
+    });
+  }
+
+  Object.keys(dockerComposePatch.services).forEach((service) => {
+    if (services[service] !== undefined) {
+      console.log(`patch generated docker-compose file for ${service}`);
+      mergeWith(services[service], dockerComposePatch.services[service]);
+    }
+  });
+
   const yaml = require('yamljs');
   return fs.writeFileAsync('build/docker-compose.yml', yaml.stringify(dockerCompose, 100, 2))
     .then(() => dockerCompose);
@@ -396,7 +488,7 @@ function pushImages(images) {
   if (!argv.noDefaultTags) {
     tags.push(...images.map((image) => ({image, tag: `${dockerRepository}/${image}`})));
   }
-  if (argv.pushExtra) { //push additional custom prefix without the version
+  if (argv.pushExtra) { // push additional custom prefix without the version
     tags.push(...images.map((image) => ({
       image,
       tag: `${dockerRepository}/${image.substring(0, image.lastIndexOf(':'))}:${argv.pushExtra}`
@@ -409,6 +501,214 @@ function pushImages(images) {
     .then(() => Promise.all(tags.map((tag) => docker('.', `push ${tag.tag}`))));
 }
 
+function loadPatchFile() {
+  const existsYaml = fs.existsSync('./docker-compose-patch.yaml');
+  if (!existsYaml && !fs.existsSync('./docker-compose-patch.yml')) {
+    return {services: {}};
+  }
+  const content = fs.readFileSync(existsYaml ? './docker-compose-patch.yaml' : './docker-compose-patch.yml');
+  const yaml = require('yamljs');
+  const r = yaml.parse(content.toString());
+  if (!r.services) {
+    r.services = {};
+  }
+  return r;
+}
+
+function fillDefaults(descs, dockerComposePatch) {
+  const singleService = descs.length === 1 && (argv.forceLabel === undefined);
+
+  descs.forEach((d, i) => {
+    // default values
+    d.additional = d.additional || [];
+    d.data = d.data || [];
+    d.name = d.name || (d.repo ? fromRepoUrl(d.repo) : d.label);
+    d.label = d.label || d.name;
+    d.symlink = d.symlink || null; // default value
+    d.image = d.image || `${productName}${singleService ? '' : `/${d.label}`}:${pkg.version}`;
+    // incorporate patch file
+    if (dockerComposePatch.services[d.label] && dockerComposePatch.services[d.label].image) {
+      // use a different base image to build the item
+      d.baseImage = dockerComposePatch.services[d.label].image;
+      delete dockerComposePatch.services[d.label].image;
+    }
+    // include hint in the tmp directory which one is it
+    d.tmpDir = `./tmp${i}_${d.name.replace(/\s+/, '').slice(0, 5)}`;
+  });
+
+  return descs;
+}
+
+function asChain(steps, chain) {
+  if (chain.length === 0) {
+    return [];
+  }
+  const possibleSteps = Object.keys(steps);
+
+  const callable = (c) => {
+    if (typeof c === 'function') {
+      return c;
+    }
+
+    if (typeof c === 'string') {
+      // simple lookup
+      if (!possibleSteps.includes(c)) {
+        console.error('invalid step:', c);
+        throw new Error('invalid step: ' + c);
+      }
+      return callable(steps[c]);
+    }
+
+    if (Array.isArray(c)) { // sequential sub started
+      const sub = c.map(callable);
+      return () => {
+        console.log('run sequential sub chain: ', JSON.stringify(c, null, ' '));
+        let step = Promise.resolve();
+        for (const s of sub) {
+          step = step.then(s);
+        }
+        return step;
+      };
+    }
+    // parallel = object
+    const sub = Object.keys(c).map((ci) => callable(c[ci]));
+    return () => {
+      console.log('run parallel sub chain: ', JSON.stringify(c, null, ' '));
+      return Promise.all(sub.map((d) => d())); // run sub lazy combined with all
+    };
+  };
+  return chain.map(callable);
+}
+
+function runChain(chain, catchErrors) {
+  let start = null;
+  let step = new Promise((resolve) => {
+    start = resolve;
+  });
+
+  for (const c of chain) {
+    step = step.then(c);
+  }
+
+  step.catch(catchErrors);
+
+  return () => {
+    start(); // resolve first to start chain
+    return step; // return last result
+  };
+}
+
+function strObject(items) {
+  const obj = {};
+  for (const item of items) {
+    obj[item] = item;
+  }
+  return obj;
+}
+
+function buildDockerImage(p) {
+  const buildInSubDir = p.type === 'web' || p.type === 'static';
+  let buildArgs = '';
+  // pass through http_proxy, no_proxy, and https_proxy env variables
+  for (const key of Object.keys(process.env)) {
+    const lkey = key.toLowerCase();
+    if (lkey === 'http_proxy' || lkey === 'https_proxy' || lkey === 'no_proxy') {
+      // pass through
+      buildArgs += ` --build-arg ${lkey}='${process.env[key]}'`;
+    }
+  }
+
+  // patch the docker file with the with an optional given baseImage
+  return Promise.resolve(patchDockerfile(p, `${p.tmpDir}${buildInSubDir ? '/' + p.name : ''}/deploy/Dockerfile`))
+    // create the container image
+    .then(() => docker(`${p.tmpDir}${buildInSubDir ? '/' + p.name : ''}`, `build -t ${p.image}${buildArgs} -f deploy/Dockerfile .`))
+    // tag the container image
+    .then(() => argv.pushExtra ? docker(`${p.tmpDir}`, `tag ${p.image} ${p.image.substring(0, p.image.lastIndexOf(':'))}:${argv.pushExtra}`) : null);
+}
+
+function createWorkspace(p) {
+  return yo('workspace', {noAdditionals: true, defaultApp: 'phovea'}, p.tmpDir)
+    .then(() => patchWorkspace(p));
+}
+
+function installWebDependencies(p) {
+  return npm(p.additional.length > 0 ? p.tmpDir : (`${p.tmpDir}/${p.name}`), 'install');
+}
+
+function cleanUpWebDependencies(p) {
+  return fs.emptyDirAsync(p.additional.length > 0 ? `${p.tmpDir}/node_modules` : (`${p.tmpDir}/${p.name}/node_modules`));
+}
+
+function resolvePluginTypes(p) {
+  if (p.pluginType) {
+    return Promise.resolve(); // already resolved
+  }
+  if (p.additional.length === 0) {
+    return resolvePluginType(p, p.tmpDir);
+  }
+  return Promise.all([resolvePluginType(p, p.tmpDir)].concat(p.additional.map((pi) => resolvePluginType(pi, p.tmpDir))));
+}
+
+function testWebAdditionals(p) {
+  return Promise.all(p.additional.map((pi) => npm(p.tmpDir, `run test${pi.isHybridType ? ':web' : ''}:${pi.name}`)));
+}
+
+function buildWeb(p) {
+  const hasAdditional = p.additional.length > 0;
+
+  let step;
+  if (hasAdditional) {
+    step = npm(p.tmpDir, `run dist${p.isHybridType ? ':web' : ''}:${p.name}`);
+  } else {
+    step = npm(`${p.tmpDir}/${p.name}`, `run dist${p.isHybridType ? ':web' : ''}`);
+  }
+  // move to target directory
+  return step.then(() => fs.renameAsync(`${p.tmpDir}/${p.name}/dist/${p.name}.tar.gz`, `./build/${p.label}.tar.gz`));
+}
+
+function installPythonTestDependencies(p) {
+  console.log(chalk.yellow('create test environment'));
+  return spawn('pip', 'install --no-cache-dir -r requirements.txt', {cwd: p.tmpDir})
+    .then(() => spawn('pip', 'install --no-cache-dir -r requirements_dev.txt', {cwd: p.tmpDir}));
+}
+
+function buildServer(p) {
+  let act = npm(`${p.tmpDir}/${p.name}`, `run build${p.isHybridType ? ':python' : ''}`);
+  for (const pi of p.additional) {
+    act = act.then(() => npm(`${p.tmpDir}/${pi.name}`, `run build${pi.isHybridType ? ':python' : ''}`));
+  }
+
+  // copy all together
+  act = act
+    .then(() => fs.ensureDirAsync(`${p.tmpDir}/build/source`))
+    .then(() => fs.copyAsync(`${p.tmpDir}/${p.name}/build/source`, `${p.tmpDir}/build/source/`))
+    .then(() => Promise.all(p.additional.map((pi) => fs.copyAsync(`${p.tmpDir}/${pi.name}/build/source`, `${p.tmpDir}/build/source/`))));
+
+  // copy main deploy thing and create a docker out of it
+  act = act
+    .then(() => fs.ensureDirAsync(`${p.tmpDir}/deploy`))
+    .then(() => fs.copyAsync(`${p.tmpDir}/${p.name}/deploy`, `${p.tmpDir}/deploy/`));
+
+  return act;
+}
+
+function downloadServerDataFiles(p) {
+  if (!argv.serial) {
+    return Promise.all(p.data.map((d) => downloadDataFile(d, `${p.tmpDir}/build/source/_data`, p.tmpDir)));
+  }
+  // serial
+  let act = Promise.resolve();
+  for (const d of p.data) {
+    act = act.then(() => downloadDataFile(d, `${p.tmpDir}/build/source/_data`, p.tmpDir));
+  }
+  return act;
+}
+
+function cleanWorkspace(descs) {
+  console.log(chalk.yellow('clean workspace'));
+  return Promise.all([fs.emptyDirAsync('build')].concat(descs.map((d) => fs.emptyDirAsync(d.tmpDir))));
+}
+
 if (require.main === module) {
   if (argv.skipTests) {
     // if skipTest option is set, skip tests
@@ -416,59 +716,186 @@ if (require.main === module) {
     env.PHOVEA_SKIP_TESTS = true;
   }
   if (argv.quiet) {
-    // if skipTest option is set, skip tests
     console.log(chalk.blue('will try to keep my mouth shut...'));
   }
-  const descs = require('./phovea_product.json');
-  const singleService = descs.length === 1;
-  const productName = pkg.name.replace('_product', '');
+  const dockerComposePatch = loadPatchFile();
+  const descs = fillDefaults(require('./phovea_product.json'), dockerComposePatch);
 
+  if (fs.existsSync('.yo-rc.json')) {
+    fs.renameSync('.yo-rc.json', '.yo-rc_tmp.json');
+  }
+  fs.ensureDirSync('build');
 
-  fs.emptyDirAsync('build')
-    .then(dockerRemoveImages.bind(this, productName))
-    // move my own .yo-rc.json to avoid a conflict
-    .then(fs.renameAsync('.yo-rc.json', '.yo-rc_tmp.json'))
-    .then(() => {
-      const buildOne = (d, i) => {
-        d.additional = d.additional || []; //default values
-        d.data = d.data || [];
-        d.name = d.name || fromRepoUrl(d.repo);
-        d.label = d.label || d.name;
-        if (singleService) {
-          d.image = `${productName}:${pkg.version}`;
-        } else {
-          d.image = `${productName}/${d.label}:${pkg.version}`;
-        }
-        let wait = buildImpl(d, './tmp' + i);
-        wait.catch((error) => {
-          d.error = error;
-          console.error('ERROR building ', d, error);
-        });
-        return wait;
-      };
-      if (argv.serial) {
-        let r = Promise.resolve([]);
-        for (let i = 0; i < descs.length; ++i) {
-          r = r.then((arr) => buildOne(descs[i], i).then((f) => arr.concat(f)));
-        }
-        return r;
-      } else {
-        return Promise.all(descs.map(buildOne));
-      }
-    })
-    .then((composeFiles) => buildCompose(descs, composeFiles.filter((d) => !!d)))
-    .then(() => pushImages(descs.filter((d) => !d.error).map((d) => d.image)))
-    .then(() => fs.renameAsync('.yo-rc_tmp.json', '.yo-rc.json'))
-    .then(() => {
+  const cleanUp = () => {
+    if (fs.existsSync('.yo-rc_tmp.json')) {
+      fs.renameSync('.yo-rc_tmp.json', '.yo-rc.json');
+    }
+  };
+
+  const catchProductBuild = (p, act) => {
+    // no chaining to keep error
+    act.catch((error) => {
+      p.error = error;
+      console.error('ERROR building ', p.name, error);
+    });
+    return act;
+  };
+
+  const steps = {
+    clean: () => cleanWorkspace(descs),
+    prune: dockerRemoveImages,
+    compose: () => buildComposePartials(descs).then(() => buildCompose(descs, dockerComposePatch)),
+    push: () => pushImages(descs.filter((d) => !d.error).map((d) => d.image)),
+    summary: () => {
       console.log(chalk.bold('summary: '));
       const maxLength = Math.max(...descs.map((d) => d.name.length));
       descs.forEach((d) => console.log(` ${d.name}${'.'.repeat(3 + (maxLength - d.name.length))}` + (d.error ? chalk.red('ERROR') : chalk.green('SUCCESS'))));
       const anyErrors = descs.some((d) => d.error);
+      cleanUp();
       if (anyErrors) {
         process.exit(1);
       }
-    }).catch((error) => {
+    }
+  };
+
+  const webTypes = ['static', 'web'];
+  const serverTypes = ['api', 'service'];
+
+  const chainProducts = [];
+  for (let i = 0; i < descs.length; ++i) {
+    const p = descs[i];
+    const suffix = p.name;
+    const hasAdditional = p.additional.length > 0;
+    const isWeb = webTypes.includes(p.type);
+    const isServer = serverTypes.includes(p.type);
+
+    if (!isWeb && !isServer) {
+      console.error(chalk.red('unknown product type: ' + p.type));
+      continue;
+    }
+
+    fs.ensureDirSync(p.tmpDir);
+
+    // clone repo
+    const subSteps = [];
+    steps[`clone:${suffix}`] = () => catchProductBuild(p, cloneRepo(p, p.tmpDir));
+    subSteps.push(`clone:${suffix}`);
+
+    if (hasAdditional) {
+      // clone extras
+      const cloneKeys = [];
+      for (const pi of p.additional) {
+        const key = `clone:${suffix}:${pi.name}`;
+        steps[key] = () => catchProductBuild(p, cloneRepo(pi, p.tmpDir));
+        cloneKeys.push(key);
+      }
+
+      if (argv.serial) {
+        subSteps.push(...cloneKeys);
+      } else {
+        subSteps.push(strObject(cloneKeys));
+      }
+    }
+
+    const needsWorskpace = (isWeb && hasAdditional) || isServer;
+    if(needsWorskpace) {
+      steps[`prepare:${suffix}`] = () => catchProductBuild(p, createWorkspace(p));
+    }
+
+    if (isWeb) {
+      steps[`install:${suffix}`] = () => catchProductBuild(p, installWebDependencies(p));
+    } else { // server
+      steps[`install:${suffix}`] = argv.skipTests ? () => null : () => catchProductBuild(p, installPythonTestDependencies(p));
+    }
+    steps[`test:${suffix}`] = isWeb && hasAdditional ? () => catchProductBuild(p, resolvePluginTypes(p).then(() => testWebAdditionals(p))) : () => null;
+    steps[`build:${suffix}`] = isWeb ? () => catchProductBuild(p, resolvePluginTypes(p).then(() => buildWeb(p))) : () => catchProductBuild(p, resolvePluginTypes(p).then(() => buildServer(p)));
+    steps[`data:${suffix}`] = () => catchProductBuild(p, downloadServerDataFiles(p));
+    steps[`postbuild:${suffix}`] = isWeb ? () => catchProductBuild(p, cleanUpWebDependencies(p)) : () => null;
+    steps[`image:${suffix}`] = () => catchProductBuild(p, buildDockerImage(p));
+    steps[`save:${suffix}`] = () => catchProductBuild(p, dockerSave(p.image, `build/${p.label}_image.tar.gz`));
+
+    if(needsWorskpace) {
+      subSteps.push(`prepare:${suffix}`);
+    }
+    subSteps.push(`install:${suffix}`);
+    if (!argv.skipTests) {
+      subSteps.push(`test:${suffix}`);
+    }
+    subSteps.push(`build:${suffix}`);
+    if (isServer && p.data.length > 0) {
+      subSteps.push(`data:${suffix}`);
+    }
+    if (isWeb) {
+      subSteps.push(`postbuild:${suffix}`);
+    }
+    subSteps.push(`image:${suffix}`);
+    if (!argv.skipSaveImage) {
+      subSteps.push(`save:${suffix}`);
+    }
+
+    steps[`product:${suffix}`] = subSteps;
+    subSteps.name = `product:${suffix}`;
+    chainProducts.push(subSteps);
+  }
+
+  // create some meta steps
+  {
+    const stepNames = Object.keys(steps);
+    for (const meta of ['clone', 'prepare', 'build', 'test', 'postbuild', 'image', 'product', 'install']) {
+      const sub = stepNames.filter((d) => d.startsWith(`${meta}:`));
+      if (sub.length <= 0) {
+        continue;
+      }
+      steps[meta] = argv.serial ? sub : strObject(sub);
+    }
+  }
+
+  const chain = ['clean'];
+
+  if (!argv.skipCleanUp) {
+    chain.push('prune');
+  }
+
+  if (argv.serial) {
+    chain.push(...chainProducts); // serially
+  } else {
+    const par = {};
+    chainProducts.forEach((c) => {
+      par[c.name] = c;
+    });
+    chain.push(par); // as object = parallel
+  }
+  // result of the promise is an array of partial docker compose files
+
+  chain.push('compose');
+  if (argv.pushTo) {
+    chain.push('push');
+  }
+  chain.push('summary');
+
+  // XX. catch all error handling
+  const catchErrors = (error) => {
     console.error('ERROR extra building ', error);
+    // rename back
+    cleanUp();
     process.exit(1);
-  });
+  };
+
+  if (argv.help) {
+    showHelp(steps, chain);
+    cleanUp();
+    process.exit(0);
+  }
+
+  if (argv._.length > 0) {
+    // explicit chain replace computed one
+    chain.splice(0, chain.length, ...argv._);
+  }
+
+  console.log(chalk.blue('executing chain:'), JSON.stringify(chain, null, ' '));
+  const toExecute = asChain(steps, chain);
+  const launch = runChain(toExecute, catchErrors);
+  if (!argv.dryRun) {
+    launch();
+  }
 }
