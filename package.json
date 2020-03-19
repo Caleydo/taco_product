@@ -2,7 +2,7 @@
   "name": "taco_product",
   "description": "",
   "homepage": "https://phovea.caleydo.org",
-  "version": "3.0.1-SNAPSHOT",
+  "version": "4.0.0",
   "author": {
     "name": "The Caleydo Team",
     "email": "contact@caleydo.org",
@@ -34,7 +34,7 @@
     "bluebird": "3.7.2",
     "chalk": "3.0.0",
     "fs-extra": "^8.1.0",
-    "generator-phovea": "^4.0.0",
+    "generator-phovea": "^5.0.0",
     "lodash": "4.17.15",
     "yamljs": "0.3.0",
     "yargs-parser": "18.0.0",
