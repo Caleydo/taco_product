@@ -1,5 +1,8 @@
-taco_product [![Phovea][phovea-image]][phovea-url] [![NPM version][npm-image]][npm-url] [![Build Status][travis-image]][travis-url] [![Dependency Status][daviddm-image]][daviddm-url]
+taco_product
 =====================
+[![Phovea][phovea-image]][phovea-url][![Build Status][circleci-image]][circleci-url]
+
+
 This is repository builds TACO, which is composed of the [taco_server](https://github.com/Caleydo/taco_server) and the [taco client](https://github.com/Caleydo/taco).
 
 A simple way to install taco is using the [taco_product](https://github.com/Caleydo/taco_product).
@@ -37,9 +40,6 @@ This repository is part of **[Phovea](http://phovea.caleydo.org/)**, a platform 
 
 [phovea-image]: https://img.shields.io/badge/Phovea-Product-FABC15.svg
 [phovea-url]: https://phovea.caleydo.org
-[npm-image]: https://badge.fury.io/js/taco_product.svg
-[npm-url]: https://npmjs.org/package/taco_product
 [circleci-image]: https://circleci.com/gh/Caleydo/taco_product.svg?style=shield
 [circleci-url]: https://circleci.com/gh/Caleydo/taco_product
-[daviddm-image]: https://david-dm.org/Caleydo/taco_product/status.svg
-[daviddm-url]: https://david-dm.org/Caleydo/taco_product
+
