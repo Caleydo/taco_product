@@ -415,6 +415,12 @@ function patchWorkspace(p) {
     `;
     fs.writeFileSync(p.tmpDir + '/phovea_registry.js', registry);
   }
+  //copy template files of product to workspace of product
+  if (fs.existsSync(`./templates/${p.type}`)) {
+    fs.copySync(`./templates/${p.type}`, p.tmpDir);
+  }
+
+
 }
 
 function mergeCompose(composePartials) {
@@ -607,7 +613,7 @@ function strObject(items) {
 }
 
 function buildDockerImage(p) {
-  const buildInSubDir = p.type === 'web' || p.type === 'static';
+  const buildInSubDir = p.type === 'static';
   let buildArgs = '';
   // pass through http_proxy, no_proxy, and https_proxy env variables
   for (const key of Object.keys(process.env)) {
@@ -617,11 +623,12 @@ function buildDockerImage(p) {
       buildArgs += ` --build-arg ${lkey}='${process.env[key]}'`;
     }
   }
-
+  const dockerFile = `deploy${p.type === 'web' || p.type === 'api' ? '/' + p.type : ''}/Dockerfile`;
+  console.log('use dockerfile: ' + dockerFile);
   // patch the docker file with the with an optional given baseImage
-  return Promise.resolve(patchDockerfile(p, `${p.tmpDir}${buildInSubDir ? '/' + p.name : ''}/deploy/Dockerfile`))
+  return Promise.resolve(patchDockerfile(p, `${p.tmpDir}${buildInSubDir ? '/' + p.name : ''}/${dockerFile}`))
     // create the container image
-    .then(() => docker(`${p.tmpDir}${buildInSubDir ? '/' + p.name : ''}`, `build -t ${p.image}${buildArgs} -f deploy/Dockerfile .`))
+    .then(() => docker(`${p.tmpDir}${buildInSubDir ? '/' + p.name : ''}`, `build -t ${p.image}${buildArgs} -f ${dockerFile} .`))
     // tag the container image
     .then(() => argv.pushExtra ? docker(`${p.tmpDir}`, `tag ${p.image} ${p.image.substring(0, p.image.lastIndexOf(':'))}:${argv.pushExtra}`) : null);
 }
@@ -685,11 +692,6 @@ function buildServer(p) {
     .then(() => fs.ensureDirAsync(`${p.tmpDir}/build/source`))
     .then(() => fs.copyAsync(`${p.tmpDir}/${p.name}/build/source`, `${p.tmpDir}/build/source/`))
     .then(() => Promise.all(p.additional.map((pi) => fs.copyAsync(`${p.tmpDir}/${pi.name}/build/source`, `${p.tmpDir}/build/source/`))));
-
-  // copy main deploy thing and create a docker out of it
-  act = act
-    .then(() => fs.ensureDirAsync(`${p.tmpDir}/deploy`))
-    .then(() => fs.copyAsync(`${p.tmpDir}/${p.name}/deploy`, `${p.tmpDir}/deploy/`));
 
   return act;
 }
@@ -799,7 +801,7 @@ if (require.main === module) {
       }
     }
 
-    const needsWorkspace = (isWeb && hasAdditional) || isServer;
+    const needsWorkspace = isWeb || isServer;
     if(needsWorkspace) {
       steps[`prepare:${suffix}`] = () => catchProductBuild(p, createWorkspace(p));
     }

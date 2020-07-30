@@ -1,11 +1,22 @@
-/.tscache
-/.idea
-/build/
-/dist/
-node_modules/
-/src/**/*.js
-/tests/**/*.js
-*.map
-*.css
-*.log
-/tmp*/
+# ignore all files and plugin repos of the workspace ...
+.*
+*.*
+/*/
+*
+
+# ... except all files relevant for the product build
+!/.circleci/
+!/.github
+!/templates/
+!.editorconfig
+!.gitattributes
+!.yo-rc.json
+!ISSUE_TEMPLATE.md
+!LICENSE
+!README.md
+!build.js
+!package.json
+!phovea_product.*
+!Jenkinsfile
+!docker_script.sh
+!docker-compose-patch.*
