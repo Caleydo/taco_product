@@ -18,12 +18,12 @@ jobs:
             python --version
             pip --version
       - restore_cache:
-          key: dependency1-cache-{{ checksum "package.json" }}
+          key: dependency2-cache-{{ checksum "package.json" }}
       - run:
           name: Install npm dependencies
           command: npm install
       - save_cache:
-          key: dependency1-cache-{{ checksum "package.json" }}
+          key: dependency2-cache-{{ checksum "package.json" }}
           paths:
             - ./node_modules
       - run:
