@@ -1,0 +1,16 @@
+@debug('import plugin scss variables');
+// import all variables scss
+// first default app
+@import "~taco/dist/scss/abstracts/variables";
+// then going up in the dependency tree from the default app
+@import "~phovea_ui/dist/scss/abstracts/variables";
+// then all other plugins in this workspace (excluding other apps)
+@import "~@fortawesome/fontawesome-free/scss/variables";
+
+// import mixins
+@import "~@fortawesome/fontawesome-free/scss/mixins";
+
+@debug('import plugin main scss');
+// all main scss (in opposite order of the variables scss
+@import "~phovea_ui/dist/scss/main";
+@import "~taco/dist/scss/main";
