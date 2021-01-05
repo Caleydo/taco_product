@@ -6,16 +6,14 @@
 
 # ... except all files relevant for the product build
 !/.circleci/
-!/.github
+!/.circleci/**/*
+!/.github/
+!/.github/**/*
 !templates/
 !templates/web/
-!templates/web/deploy
-!templates/web/deploy/web
-!templates/web/deploy/web/*
+!templates/web/**/*
 !templates/api/
-!templates/api/deploy
-!templates/api/deploy/api
-!templates/api/deploy/api/*
+!templates/api/**/*
 !.editorconfig
 !.gitattributes
 !.yo-rc.json
