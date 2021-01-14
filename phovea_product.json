@@ -3,24 +3,24 @@
     "type": "web",
     "label": "taco",
     "repo": "Caleydo/taco",
-    "branch": "develop",
+    "branch": "vstoiber/update_dependencies",
     "additional": []
   },
   {
     "type": "api",
     "label": "taco_server",
     "repo": "phovea/phovea_server",
-    "branch": "develop",
+    "branch": "vstoiber/logging_behaviour_and_dependencies",
     "additional": [
       {
         "name": "taco_server",
         "repo": "Caleydo/taco_server",
-        "branch": "develop"
+        "branch": "vstoiber/update_requirements"
       },
       {
         "name": "phovea_data_hdf",
         "repo": "phovea/phovea_data_hdf",
-        "branch": "develop"
+        "branch": "vstoiber/update_requirements"
       }
     ],
     "data": [
