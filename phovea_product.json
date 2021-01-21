@@ -1,28 +1,24 @@
-[
-  {
+{
+  "web": {
     "type": "web",
-    "label": "taco",
     "repo": "Caleydo/taco",
     "branch": "develop",
-    "additional": []
+    "additionals": {}
   },
-  {
+  "api": {
     "type": "api",
-    "label": "taco_server",
     "repo": "phovea/phovea_server",
     "branch": "develop",
-    "additional": [
-      {
-        "name": "taco_server",
+    "additionals": {
+      "taco_server": {
         "repo": "Caleydo/taco_server",
         "branch": "develop"
       },
-      {
-        "name": "phovea_data_hdf",
+      "phovea_data_hdf": {
         "repo": "phovea/phovea_data_hdf",
         "branch": "develop"
       }
-    ],
+    },
     "data": [
       {
         "type": "url",
@@ -58,4 +54,4 @@
       }
     ]
   }
-]
+}
