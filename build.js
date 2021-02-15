@@ -404,6 +404,7 @@ function patchWorkspace(p) {
 
   if (argv.injectVersion) {
     const targetPkgFile = `${p.tmpDir}/package.json`;
+    console.log(`targetPkgFile ${JSON.stringify(targetPkgFile)}`);
     // inject version of product package.json into workspace package.json
     injectVersion(targetPkgFile, pkg.version);
   } else {
@@ -650,6 +651,7 @@ function buildDockerImage(p) {
 }
 
 function createWorkspace(p) {
+  console.log(`defaultApp: ${p.name}`);
   return yo('workspace', {noAdditionals: true, defaultApp: p.name, addWorkspaceRepos: false}, p.tmpDir)
     .then(() => patchWorkspace(p));
 }
