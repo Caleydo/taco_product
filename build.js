@@ -396,6 +396,7 @@ function patchWorkspace(p) {
       const ppkg = require(targetPkgFile);
       ppkg.version = targetVersion;
       console.log(`Write version ${targetVersion} into ${targetPkgFile}`);
+      console.log(`ppkg ${JSON.stringify(ppkg)}`);
       fs.writeJSONSync(targetPkgFile, ppkg, {spaces: 2});
     } else {
       console.warn(`Cannot inject version: ${targetPkgFile} not found`);
