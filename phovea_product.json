@@ -8,7 +8,7 @@
   },
   {
     "type": "api",
-    "label": "phovea_server",
+    "label": "taco_server",
     "repo": "phovea/phovea_server",
     "branch": "v7.0.0",
     "additional": [
