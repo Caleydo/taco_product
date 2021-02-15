@@ -397,6 +397,7 @@ function patchWorkspace(p) {
       ppkg.version = targetVersion;
       console.log(`Write version ${targetVersion} into ${targetPkgFile}`);
       console.log(`ppkg ${JSON.stringify(ppkg)}`);
+      console.log(fs.readFileSync('./yo-rc-workspace.json').toString());
       fs.writeJSONSync(targetPkgFile, ppkg, {spaces: 2});
     } else {
       console.warn(`Cannot inject version: ${targetPkgFile} not found`);
