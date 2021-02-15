@@ -15,7 +15,7 @@
       {
         "name": "taco_server",
         "repo": "Caleydo/taco_server",
-        "branch": "v7.0.0"
+        "branch": "v6.0.0"
       },
       {
         "name": "phovea_data_hdf",
