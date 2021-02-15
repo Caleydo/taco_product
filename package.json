@@ -6,7 +6,7 @@
   "author": {
     "name": "The Caleydo Team",
     "email": "contact@caleydo.org",
-    "url": ""
+    "url": "https://caleydo.org"
   },
   "license": "BSD-3-Clause",
   "bugs": {
@@ -33,9 +33,9 @@
   "dependencies": {
     "bluebird": "3.7.2",
     "chalk": "3.0.0",
-    "fs-extra": "^8.1.0",
+    "fs-extra": "^9.0.1",
     "generator-phovea": "github:phovea/generator-phovea#develop",
-    "lodash": "4.17.15",
+    "lodash": "4.17.20",
     "yamljs": "0.3.0",
     "yargs-parser": "18.0.0",
     "yeoman-environment": "2.8.0"

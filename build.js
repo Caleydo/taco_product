@@ -653,8 +653,7 @@ function buildDockerImage(p) {
 }
 
 function createWorkspace(p) {
-  console.log(`defaultApp: ${p.name}`);
-  return yo('workspace', {noAdditionals: true, defaultApp: p.name, addWorkspaceRepos: false}, p.tmpDir)
+  return yo('workspace', {noAdditionals: true, defaultApp: p.name}, p.tmpDir)
     .then(() => patchWorkspace(p));
 }
 
