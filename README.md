@@ -1,4 +1,4 @@
-taco_product
+DEPRECATED: taco_product
 =====================
 [![Phovea][phovea-image]][phovea-url][![Build Status][circleci-image]][circleci-url]
 
@@ -6,6 +6,9 @@ taco_product
 This is repository builds TACO, which is composed of the [taco_server](https://github.com/Caleydo/taco_server) and the [taco client](https://github.com/Caleydo/taco).
 
 A simple way to install taco is using the [taco_product](https://github.com/Caleydo/taco_product).
+
+### DEPRECATION Information
+Please note that this project has been archived and is no longer being maintained. There is an active development under https://github.com/datavisyn/tdp_core and we will also contribute our future changes to it.
 
 Installation
 ------------

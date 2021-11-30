@@ -3,7 +3,7 @@ jobs:
   build:
     working_directory: ~/phovea
     docker:
-      - image: circleci/python:3.7-buster-node-browsers # for node version see Dockerfile on https://hub.docker.com/r/circleci/python
+      - image: circleci/python:3.7.11-buster-node-browsers # for node version see Dockerfile on https://hub.docker.com/r/circleci/python
     steps:
       - checkout
       - setup_remote_docker
@@ -103,16 +103,16 @@ jobs:
             fi
 workflows:
   version: 2
-  build-nightly:
-    triggers:
-      - schedule:
-          cron: "15 1 * * 1-5" # "At 01:15 on every day-of-week from Monday through Friday.”, see: https://crontab.guru/#15_1_*_*_1-5
-          filters:
-            branches:
-              only:
-                - develop
-    jobs:
-      - build
+  # build-nightly:
+  #   triggers:
+  #     - schedule:
+  #         cron: "15 1 * * 1-5" # "At 01:15 on every day-of-week from Monday through Friday.”, see: https://crontab.guru/#15_1_*_*_1-5
+  #         filters:
+  #           branches:
+  #             only:
+  #               - develop
+  #   jobs:
+  #     - build
   build-branch:
     jobs:
       - build:
